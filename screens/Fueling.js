@@ -1,4 +1,3 @@
-// screens/Fueling.js
 import React, { useState } from 'react';
 import {
   View,
@@ -189,7 +188,7 @@ const styles = StyleSheet.create({
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,  // match Travel Logs
     paddingBottom: 30,
   },
   header: {
