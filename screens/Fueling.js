@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,  // match Travel Logs
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,
     paddingBottom: 30,
   },
   header: {
