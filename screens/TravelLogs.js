@@ -1,4 +1,3 @@
-// screens/TravelLogs.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,

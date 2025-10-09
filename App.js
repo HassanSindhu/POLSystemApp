@@ -1,4 +1,3 @@
-// App.js
 import * as React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -6,7 +5,7 @@ import { Text, View } from 'react-native';
 
 import Fueling from './screens/Fueling';
 import Traveling from './screens/Traveling';
-import TravelLogs from './screens/TravelLogs'; // <-- NEW
+import TravelLogs from './screens/TravelLogs';
 
 const Tab = createBottomTabNavigator();
 

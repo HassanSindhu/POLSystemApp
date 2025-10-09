@@ -1,4 +1,3 @@
-// screens/Traveling.js
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
@@ -14,18 +13,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
 import ImageCaptureRow from '../components/ImageCaptureRow';
 
 const STORAGE_KEY = 'TRAVEL_LOGS';
+const VEHICLES = ['SLJ-1112', 'SAJ-321', 'LEG-2106', 'GBF-848', 'Hiace APL-2025'];
 
 export default function Traveling() {
   const [officer, setOfficer] = useState('');
+  const [vehicle, setVehicle] = useState('');
   const [preMeter, setPreMeter] = useState('');
   const [preMeterImg, setPreMeterImg] = useState(null);
   const [fromLocation, setFromLocation] = useState('');
   const [toLocation, setToLocation] = useState('');
 
-  // صرف ہندسے رکھنے کے لیے
   const handlePreMeterChange = useCallback((t) => {
     const onlyDigits = t.replace(/[^\d]/g, '');
     setPreMeter(onlyDigits);
@@ -34,34 +35,35 @@ export default function Traveling() {
   const isFormValid = useMemo(() => {
     return (
       officer.trim().length > 0 &&
+      vehicle.trim().length > 0 &&
       preMeter.trim().length > 0 &&
       !!preMeterImg?.uri &&
       fromLocation.trim().length > 0 &&
       toLocation.trim().length > 0
     );
-  }, [officer, preMeter, preMeterImg, fromLocation, toLocation]);
+  }, [officer, vehicle, preMeter, preMeterImg, fromLocation, toLocation]);
 
   const resetForm = useCallback(() => {
     setOfficer('');
+    setVehicle('');
     setPreMeter('');
     setPreMeterImg(null);
     setFromLocation('');
     setToLocation('');
   }, []);
 
- // اوپر import میں useCallback پہلے سے موجود ہے
- const saveToStorage = useCallback(async (record) => {
-   try {
-     const existing = await AsyncStorage.getItem(STORAGE_KEY);
-     const parsed = existing ? JSON.parse(existing) : [];
-     parsed.push(record);
-     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-   } catch (err) {
-     console.error('AsyncStorage error:', err);
-     throw err;
-   }
- }, []);
-
+  // save helper
+  const saveToStorage = useCallback(async (record) => {
+    try {
+      const existing = await AsyncStorage.getItem(STORAGE_KEY);
+      const parsed = existing ? JSON.parse(existing) : [];
+      parsed.push(record);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+    } catch (err) {
+      console.error('AsyncStorage error:', err);
+      throw err;
+    }
+  }, []);
 
   const handleSave = useCallback(async () => {
     if (!isFormValid) {
@@ -78,6 +80,7 @@ export default function Traveling() {
     const record = {
       id: `travel_${Date.now()}`,
       officer: officer.trim(),
+      vehicle: vehicle.trim(),
       preMeter: preMeterNum,
       preMeterImg: preMeterImg.uri,
       from: fromLocation.trim(),
@@ -85,7 +88,6 @@ export default function Traveling() {
       meta: {
         platform: Platform.OS,
         timestamp: new Date().toISOString(),
-        // آئندہ: gps, appVersion, battery, network وغیرہ شامل ہو سکتے ہیں
       },
     };
 
@@ -96,13 +98,13 @@ export default function Traveling() {
     } catch {
       Alert.alert('Error', 'ریکارڈ محفوظ کرنے میں مسئلہ آیا، دوبارہ کوشش کریں۔');
     }
-  }, [isFormValid, officer, preMeter, preMeterImg, fromLocation, toLocation, resetForm]);
+  }, [isFormValid, officer, vehicle, preMeter, preMeterImg, fromLocation, toLocation, resetForm, saveToStorage]);
 
   return (
     <SafeAreaView style={styles.screenContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
 
-      {/* Header */}
+      {/* Header (as per your current Travel header spacing) */}
       <View style={styles.customHeader}>
         <View style={styles.headerBackground}>
           <Text style={styles.header}>Travel Log</Text>
@@ -124,7 +126,7 @@ export default function Traveling() {
             {/* Travel Officer */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Travel Officer</Text>
+                <Text style={styles.label}>Officer Name:</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -138,10 +140,29 @@ export default function Traveling() {
               />
             </View>
 
+            {/* Vehicle Dropdown - NEW */}
+            <View style={styles.inputContainer}>
+              <View style={styles.labelContainer}>
+                <Text style={styles.label}>Vehicle</Text>
+                <View style={styles.requiredDot} />
+              </View>
+              <View style={styles.pickerWrap}>
+                <Picker
+                  selectedValue={vehicle}
+                  onValueChange={setVehicle}
+                >
+                  <Picker.Item label="Select vehicle" value="" />
+                  {VEHICLES.map((v) => (
+                    <Picker.Item key={v} label={v} value={v} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+
             {/* Pre Meter */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Pre Meter Reading</Text>
+                <Text style={styles.label}>Meter Reading Start of journey</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -161,7 +182,7 @@ export default function Traveling() {
               <Text style={styles.sectionTitle}>Required Image</Text>
               <View style={styles.imageCard}>
                 <ImageCaptureRow
-                  label="Pre Meter Image"
+                  label="Meter Reading Start of journey Image"
                   value={preMeterImg}
                   onChange={setPreMeterImg}
                 />
@@ -195,7 +216,7 @@ export default function Traveling() {
                 style={styles.input}
                 value={toLocation}
                 onChangeText={setToLocation}
-                placeholder="e.g., Forest Service Academy, Muree"
+                placeholder="e.g., Forest Service Academy, Murree"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="words"
                 returnKeyType="done"
@@ -209,7 +230,7 @@ export default function Traveling() {
               disabled={!isFormValid}
             >
               <Text style={styles.submitBtnText}>Save</Text>
-            </TouchableOpacity>
+          </TouchableOpacity>
 
           </View>
         </ScrollView>
@@ -282,6 +303,18 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     backgroundColor: '#ffffff',
     fontWeight: '500',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  // Picker styled to match input (same as Fueling)
+  pickerWrap: {
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
