@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -18,15 +18,43 @@ const { width } = Dimensions.get('window');
 const VEHICLES = ['SLJ-1112', 'SAJ-321', 'LEG-2106', 'GBF-848', 'Hiace APL-2025'];
 
 export default function Fueling() {
-  const [vehicle, setVehicle] = useState('');           // <-- added
+  const [vehicle, setVehicle] = useState('');
+  const [liters, setLiters] = useState('');
+  const [pricePerLiter, setPricePerLiter] = useState('');
   const [preMeter, setPreMeter] = useState('');
   const [preMeterImg, setPreMeterImg] = useState(null);
   const [machineMeterImg, setMachineMeterImg] = useState(null);
   const [receiptImg, setReceiptImg] = useState(null);
 
+  // LIVE total
+  const totalAmount = useMemo(() => {
+    const l = parseFloat(liters);
+    const p = parseFloat(pricePerLiter);
+    if (Number.isFinite(l) && Number.isFinite(p)) return +(l * p).toFixed(2);
+    return null;
+  }, [liters, pricePerLiter]);
+
   const handleSubmit = () => {
     if (!vehicle) {
       Alert.alert('Missing Field', 'Please select a Vehicle.');
+      return;
+    }
+    if (!liters.trim()) {
+      Alert.alert('Missing Field', 'Please enter Number of Liters.');
+      return;
+    }
+    if (!pricePerLiter.trim()) {
+      Alert.alert('Missing Field', 'Please enter Price (Per Liter).');
+      return;
+    }
+    const litersNum = Number(liters);
+    const priceNum = Number(pricePerLiter);
+    if (!Number.isFinite(litersNum) || litersNum <= 0) {
+      Alert.alert('Invalid Value', 'Number of Liters must be a positive number.');
+      return;
+    }
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      Alert.alert('Invalid Value', 'Price (Per Liter) must be a positive number.');
       return;
     }
     if (!preMeter.trim()) {
@@ -48,6 +76,9 @@ export default function Fueling() {
 
     const payload = {
       vehicle,
+      liters: litersNum,
+      pricePerLiter: priceNum,
+      totalAmount: totalAmount ?? +(litersNum * priceNum).toFixed(2), // safety
       preMeter: preMeter.trim(),
       images: {
         preMeterImg: preMeterImg.uri,
@@ -65,11 +96,22 @@ export default function Fueling() {
 
     // Clear form
     setVehicle('');
+    setLiters('');
+    setPricePerLiter('');
     setPreMeter('');
     setPreMeterImg(null);
     setMachineMeterImg(null);
     setReceiptImg(null);
   };
+
+  const isDisabled =
+    !vehicle ||
+    !liters.trim() ||
+    !pricePerLiter.trim() ||
+    !preMeter ||
+    !preMeterImg ||
+    !machineMeterImg ||
+    !receiptImg;
 
   return (
     <View style={styles.screenContainer}>
@@ -89,23 +131,65 @@ export default function Fueling() {
       >
         {/* Form Section */}
         <View style={styles.formContainer}>
-          {/* Vehicle Dropdown (added) */}
+          {/* Vehicle Dropdown */}
           <View style={styles.inputContainer}>
             <View style={styles.labelContainer}>
               <Text style={styles.label}>Vehicle</Text>
               <View style={styles.requiredDot} />
             </View>
             <View style={styles.pickerWrap}>
-              <Picker
-                selectedValue={vehicle}
-                onValueChange={(v) => setVehicle(v)}
-              >
+              <Picker selectedValue={vehicle} onValueChange={setVehicle}>
                 <Picker.Item label="Select vehicle" value="" />
                 {VEHICLES.map((v) => (
                   <Picker.Item key={v} label={v} value={v} />
                 ))}
               </Picker>
             </View>
+          </View>
+
+          {/* Number of Liters */}
+          <View style={styles.inputContainer}>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Number of Liters</Text>
+              <View style={styles.requiredDot} />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={liters}
+              onChangeText={setLiters}
+              keyboardType="decimal-pad"
+              placeholder="Enter liters e.g., 45.5"
+              placeholderTextColor="#9ca3af"
+            />
+          </View>
+
+          {/* Price (Per Liter) */}
+          <View style={styles.inputContainer}>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Price (Per Liter)</Text>
+              <View style={styles.requiredDot} />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={pricePerLiter}
+              onChangeText={setPricePerLiter}
+              keyboardType="decimal-pad"
+              placeholder="Enter price per liter e.g., 285"
+              placeholderTextColor="#9ca3af"
+            />
+          </View>
+
+          {/* Total (auto) */}
+          <View style={styles.inputContainer}>
+            <View style={styles.labelContainer}>
+              <Text style={styles.label}>Total Amount</Text>
+            </View>
+            <View style={styles.readonlyBox}>
+              <Text style={styles.readonlyText}>
+                {totalAmount !== null ? `Rs ${totalAmount}` : '—'}
+              </Text>
+            </View>
+            <Text style={styles.hint}>Calculated as: liters × price per liter</Text>
           </View>
 
           {/* Pre Meter Input */}
@@ -155,13 +239,9 @@ export default function Fueling() {
 
           {/* Submit Button */}
           <TouchableOpacity
-            style={[
-              styles.submitBtn,
-              (!vehicle || !preMeter || !preMeterImg || !machineMeterImg || !receiptImg) &&
-                styles.submitBtnDisabled,
-            ]}
+            style={[styles.submitBtn, isDisabled && styles.submitBtnDisabled]}
             onPress={handleSubmit}
-            disabled={!vehicle || !preMeter || !preMeterImg || !machineMeterImg || !receiptImg}
+            disabled={isDisabled}
           >
             <Text style={styles.submitBtnText}>Submit Fuel Record</Text>
           </TouchableOpacity>
@@ -241,7 +321,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  // Picker styled to match input (keeps your UI consistent)
   pickerWrap: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
@@ -299,4 +378,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     letterSpacing: 0.5,
   },
+
+  // Readonly total box
+  readonlyBox: {
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#f9fafb',
+  },
+  readonlyText: { color: '#1f2937', fontWeight: '700', fontSize: 16 },
+  hint: { color: '#6b7280', marginTop: 6 },
 });

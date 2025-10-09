@@ -13,21 +13,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Picker } from '@react-native-picker/picker'; // <-- NEW
+import { Picker } from '@react-native-picker/picker';
 import ImageCaptureRow from '../components/ImageCaptureRow';
 
 const STORAGE_KEY = 'TRAVEL_LOGS';
-const VEHICLES = ['SLJ-1112', 'SAJ-321', 'LEG-2106', 'GBF-848', 'Hiace APL-2025']; // <-- NEW
+const VEHICLES = ['SLJ-1112', 'SAJ-321', 'LEG-2106', 'GBF-848', 'Hiace APL-2025'];
 
 export default function Traveling() {
   const [officer, setOfficer] = useState('');
-  const [vehicle, setVehicle] = useState('');                 // <-- NEW
+  const [vehicle, setVehicle] = useState('');
   const [preMeter, setPreMeter] = useState('');
   const [preMeterImg, setPreMeterImg] = useState(null);
   const [fromLocation, setFromLocation] = useState('');
   const [toLocation, setToLocation] = useState('');
 
-  // صرف ہندسے رکھنے کے لیے
   const handlePreMeterChange = useCallback((t) => {
     const onlyDigits = t.replace(/[^\d]/g, '');
     setPreMeter(onlyDigits);
@@ -36,7 +35,7 @@ export default function Traveling() {
   const isFormValid = useMemo(() => {
     return (
       officer.trim().length > 0 &&
-      vehicle.trim().length > 0 &&                 // <-- include vehicle
+      vehicle.trim().length > 0 &&
       preMeter.trim().length > 0 &&
       !!preMeterImg?.uri &&
       fromLocation.trim().length > 0 &&
@@ -46,7 +45,7 @@ export default function Traveling() {
 
   const resetForm = useCallback(() => {
     setOfficer('');
-    setVehicle('');                                // <-- reset vehicle
+    setVehicle('');
     setPreMeter('');
     setPreMeterImg(null);
     setFromLocation('');
@@ -81,7 +80,7 @@ export default function Traveling() {
     const record = {
       id: `travel_${Date.now()}`,
       officer: officer.trim(),
-      vehicle: vehicle.trim(),                     // <-- save vehicle
+      vehicle: vehicle.trim(),
       preMeter: preMeterNum,
       preMeterImg: preMeterImg.uri,
       from: fromLocation.trim(),
@@ -127,7 +126,7 @@ export default function Traveling() {
             {/* Travel Officer */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Travel Officer</Text>
+                <Text style={styles.label}>Officer Name:</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -163,7 +162,7 @@ export default function Traveling() {
             {/* Pre Meter */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Pre Meter Reading</Text>
+                <Text style={styles.label}>Meter Reading Start of journey</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -183,7 +182,7 @@ export default function Traveling() {
               <Text style={styles.sectionTitle}>Required Image</Text>
               <View style={styles.imageCard}>
                 <ImageCaptureRow
-                  label="Pre Meter Image"
+                  label="Meter Reading Start of journey Image"
                   value={preMeterImg}
                   onChange={setPreMeterImg}
                 />
@@ -231,7 +230,7 @@ export default function Traveling() {
               disabled={!isFormValid}
             >
               <Text style={styles.submitBtnText}>Save</Text>
-            </TouchableOpacity>
+          </TouchableOpacity>
 
           </View>
         </ScrollView>
@@ -257,7 +256,7 @@ const styles = StyleSheet.create({
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8, // matched with your Travel header
+    paddingTop: Platform.OS === 'ios' ? 10 : 8,
     paddingBottom: 30,
   },
   header: {
