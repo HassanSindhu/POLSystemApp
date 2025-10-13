@@ -1,13 +1,17 @@
 import * as React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, View, StyleSheet, Platform } from 'react-native';
+import { useState } from 'react';
 
 import Fueling from './screens/Fueling';
 import Traveling from './screens/Traveling';
 import TravelLogs from './screens/TravelLogs';
+import LoginScreen from './screens/LoginScreen';
 
 const Tab = createBottomTabNavigator();
+const Stack = createNativeStackNavigator();
 
 const TabIcon = ({ focused, emoji, color }) => (
   <View style={styles.tabIconContainer}>
@@ -26,58 +30,67 @@ const TabIcon = ({ focused, emoji, color }) => (
   </View>
 );
 
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#7c3aed',
+        tabBarInactiveTintColor: '#6b7280',
+        tabBarStyle: styles.tabBar,
+        tabBarLabelStyle: styles.tabLabel,
+      }}
+    >
+      <Tab.Screen
+        name="Fuel"
+        component={Fueling}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              emoji="⛽"
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Traveling"
+        component={Traveling}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              emoji="🚗"
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Travel Logs"
+        component={TravelLogs}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              emoji="📋"
+              color={color}
+            />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
 export default function App() {
   return (
     <NavigationContainer>
-      <Tab.Navigator
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: '#7c3aed',
-          tabBarInactiveTintColor: '#6b7280',
-          tabBarStyle: styles.tabBar,
-          tabBarLabelStyle: styles.tabLabel,
-        }}
-      >
-        <Tab.Screen
-          name="Fuel"
-          component={Fueling}
-          options={{
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon
-                focused={focused}
-                emoji="⛽"
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Traveling"
-          component={Traveling}
-          options={{
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon
-                focused={focused}
-                emoji="🚗"
-                color={color}
-              />
-            ),
-          }}
-        />
-        <Tab.Screen
-          name="Travel Logs"
-          component={TravelLogs}
-          options={{
-            tabBarIcon: ({ focused, color }) => (
-              <TabIcon
-                focused={focused}
-                emoji="📋"
-                color={color}
-              />
-            ),
-          }}
-        />
-      </Tab.Navigator>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="MainApp" component={MainTabs} />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }
