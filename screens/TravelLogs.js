@@ -52,11 +52,16 @@ function TravelLogsList({ navigation }) {
 
   return (
     <SafeAreaView style={styles.screenContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
-      <View style={styles.customHeader}>
+      <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
+
+      {/* Updated Header */}
+      <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
-          <Text style={styles.header}>Travel Logs</Text>
-          <Text style={styles.subHeader}>Tap a pending log to submit post details</Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.header}>Travel Logs</Text>
+            <Text style={styles.subHeader}>Tap a pending log to submit post details</Text>
+          </View>
+          <View style={styles.headerDecoration} />
         </View>
       </View>
 
@@ -79,8 +84,8 @@ function LogRow({ item, onPress }) {
     if (!isCompleted) {
       const loop = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
-          Animated.timing(pulse, { toValue: 0.6, duration: 900, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 1, duration: 1200, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 0.6, duration: 1200, useNativeDriver: true }),
         ])
       );
       loop.start();
@@ -97,15 +102,25 @@ function LogRow({ item, onPress }) {
           isCompleted ? styles.cardDone : styles.cardPending,
         ]}
       >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <Text style={styles.cardTitle}>{item.officer} • {item.from} → {item.to}</Text>
-          <Text style={[styles.badge, isCompleted ? styles.badgeDone : styles.badgePending]}>
-            {isCompleted ? 'Completed' : 'Pending'}
-          </Text>
+        {/* Improved layout with flex to handle long text */}
+        <View style={styles.cardHeader}>
+          <View style={styles.cardContent}>
+            <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+              {item.officer}
+            </Text>
+            <Text style={styles.cardRoute} numberOfLines={1} ellipsizeMode="tail">
+              {item.from} → {item.to}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Pre: {item.preMeter} | {new Date(item?.meta?.timestamp || Date.now()).toLocaleString()}
+            </Text>
+          </View>
+          <View style={[styles.badge, isCompleted ? styles.badgeDone : styles.badgePending]}>
+            <Text style={styles.badgeText}>
+              {isCompleted ? 'Completed' : 'Pending'}
+            </Text>
+          </View>
         </View>
-        <Text style={styles.cardMeta}>
-          Pre: {item.preMeter} | {new Date(item?.meta?.timestamp || Date.now()).toLocaleString()}
-        </Text>
       </Animated.View>
     </TouchableOpacity>
   );
@@ -197,12 +212,16 @@ function TravelLogComplete({ route, navigation }) {
 
   return (
     <SafeAreaView style={styles.screenContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
+      <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      <View style={styles.customHeader}>
+      {/* Updated Header */}
+      <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
-          <Text style={styles.header}>Complete Travel</Text>
-          <Text style={styles.subHeader}>Review previous info and submit post details</Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.header}>Complete Travel</Text>
+            <Text style={styles.subHeader}>Review previous info and submit post details</Text>
+          </View>
+          <View style={styles.headerDecoration} />
         </View>
       </View>
 
@@ -302,23 +321,50 @@ function ReadonlyRow({ label, value }) {
 /** ------------------------------- styles ------------------------------ */
 const styles = StyleSheet.create({
   screenContainer: { flex: 1, backgroundColor: '#f8fafc' },
-  customHeader: {
-    backgroundColor: '#4f46e5',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+
+  // Updated Header Styles
+  headerContainer: {
+    backgroundColor: '#7c3aed',
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+    overflow: 'hidden',
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: 30,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 40,
+    position: 'relative',
   },
-  header: { fontSize: 32, fontWeight: '800', color: '#fff', marginBottom: 8 },
-  subHeader: { fontSize: 16, color: '#e0e7ff', fontWeight: '500' },
+  headerContent: {
+    zIndex: 2,
+  },
+  headerDecoration: {
+    position: 'absolute',
+    top: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  header: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  subHeader: {
+    fontSize: 16,
+    color: '#e9d5ff',
+    fontWeight: '500',
+    letterSpacing: 0.3,
+  },
 
   emptyText: { textAlign: 'center', color: '#6b7280', marginTop: 40 },
 
@@ -338,19 +384,48 @@ const styles = StyleSheet.create({
   cardPending: { borderColor: '#fde68a', backgroundColor: '#fffbeb' },
   cardDone: { borderColor: '#e5e7eb', backgroundColor: '#ffffff' },
 
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 6 },
-  cardMeta: { fontSize: 12, color: '#6b7280' },
+  // Improved card layout
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  cardContent: {
+    flex: 1,
+    marginRight: 12, // Space between content and badge
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  cardRoute: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  cardMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
 
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    fontSize: 12,
-    overflow: 'hidden',
-    color: '#111827',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    minWidth: 70, // Fixed minimum width
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badgePending: { backgroundColor: '#fcd34d' },
   badgeDone: { backgroundColor: '#a7f3d0' },
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
+  },
 
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#374151', marginBottom: 12 },
 
