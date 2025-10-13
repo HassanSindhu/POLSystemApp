@@ -276,6 +276,8 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
+    paddingBottom: 40,
+
   },
   headerContainer: {
     backgroundColor: '#7c3aed',

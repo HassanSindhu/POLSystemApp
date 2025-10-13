@@ -3,12 +3,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Text, View, StyleSheet, Platform } from 'react-native';
-import { useState } from 'react';
 
 import Fueling from './screens/Fueling';
 import Traveling from './screens/Traveling';
 import TravelLogs from './screens/TravelLogs';
 import LoginScreen from './screens/LoginScreen';
+import ProfileScreen from './screens/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -75,6 +75,19 @@ function MainTabs() {
             <TabIcon
               focused={focused}
               emoji="📋"
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon
+              focused={focused}
+              emoji="👤"
               color={color}
             />
           ),

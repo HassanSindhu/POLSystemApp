@@ -380,6 +380,8 @@ const styles = StyleSheet.create({
     elevation: 4,
     borderWidth: 1,
     borderColor: '#f3f4f6',
+    paddingBottom: 40,
+
   },
   cardPending: { borderColor: '#fde68a', backgroundColor: '#fffbeb' },
   cardDone: { borderColor: '#e5e7eb', backgroundColor: '#ffffff' },

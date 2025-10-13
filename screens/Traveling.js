@@ -316,6 +316,7 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
+    paddingBottom: 40,
   },
   headerContainer: {
     backgroundColor: '#7c3aed',
@@ -477,6 +478,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+
   },
   submitBtnDisabled: {
     backgroundColor: '#d1d5db',
@@ -489,6 +491,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+
   },
   submitBtnText: {
     color: '#ffffff',
@@ -504,6 +507,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+
   },
   submitBtnIconText: {
     color: '#ffffff',
