@@ -115,13 +115,16 @@ export default function Fueling() {
 
   return (
     <View style={styles.screenContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
+      <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Custom Header */}
-      <View style={styles.customHeader}>
+      {/* Enhanced Header with Gradient */}
+      <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
-          <Text style={styles.header}>Fuel Tracking</Text>
-          <Text style={styles.subHeader}>Record your fueling details</Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.header}>Fuel Tracking</Text>
+            <Text style={styles.subHeader}>Record your fueling details</Text>
+          </View>
+          <View style={styles.headerDecoration} />
         </View>
       </View>
 
@@ -137,8 +140,13 @@ export default function Fueling() {
               <Text style={styles.label}>Vehicle</Text>
               <View style={styles.requiredDot} />
             </View>
-            <View style={styles.pickerWrap}>
-              <Picker selectedValue={vehicle} onValueChange={setVehicle}>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={vehicle}
+                onValueChange={setVehicle}
+                style={styles.picker}
+                dropdownIconColor="#7c3aed"
+              >
                 <Picker.Item label="Select vehicle" value="" />
                 {VEHICLES.map((v) => (
                   <Picker.Item key={v} label={v} value={v} />
@@ -184,7 +192,10 @@ export default function Fueling() {
             <View style={styles.labelContainer}>
               <Text style={styles.label}>Total Amount</Text>
             </View>
-            <View style={styles.readonlyBox}>
+            <View style={[
+              styles.readonlyBox,
+              totalAmount && styles.readonlyBoxActive
+            ]}>
               <Text style={styles.readonlyText}>
                 {totalAmount !== null ? `Rs ${totalAmount}` : '—'}
               </Text>
@@ -210,7 +221,12 @@ export default function Fueling() {
 
           {/* Image Capture Sections */}
           <View style={styles.imagesSection}>
-            <Text style={styles.sectionTitle}>Required Images</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Required Images</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionBadgeText}>3</Text>
+              </View>
+            </View>
 
             <View style={styles.imageCard}>
               <ImageCaptureRow
@@ -237,13 +253,18 @@ export default function Fueling() {
             </View>
           </View>
 
-          {/* Submit Button */}
+          {/* Enhanced Submit Button */}
           <TouchableOpacity
             style={[styles.submitBtn, isDisabled && styles.submitBtnDisabled]}
             onPress={handleSubmit}
             disabled={isDisabled}
           >
-            <Text style={styles.submitBtnText}>Submit Fuel Record</Text>
+            <View style={styles.submitBtnContent}>
+              <Text style={styles.submitBtnText}>Submit Fuel Record</Text>
+              <View style={styles.submitBtnIcon}>
+                <Text style={styles.submitBtnIconText}>→</Text>
+              </View>
+            </View>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -255,139 +276,233 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
+    paddingBottom: 40,
+
   },
-  customHeader: {
-    backgroundColor: '#4f46e5',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+  headerContainer: {
+    backgroundColor: '#7c3aed',
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+    overflow: 'hidden',
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: 30,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 40,
+    position: 'relative',
+  },
+  headerContent: {
+    zIndex: 2,
+  },
+  headerDecoration: {
+    position: 'absolute',
+    top: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   header: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: '800',
     color: '#ffffff',
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subHeader: {
     fontSize: 16,
-    color: '#e0e7ff',
+    color: '#e9d5ff',
     fontWeight: '500',
+    letterSpacing: 0.3,
   },
-  container: { flexGrow: 1 },
+  container: {
+    flexGrow: 1,
+  },
   formContainer: {
-    padding: 20,
-    marginTop: -10,
+    padding: 24,
+    marginTop: -20,
   },
-  inputContainer: { marginBottom: 24 },
+  inputContainer: {
+    marginBottom: 28,
+  },
   labelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   label: {
     color: '#374151',
     fontSize: 16,
-    fontWeight: '600',
-    marginRight: 6,
+    fontWeight: '700',
+    marginRight: 8,
+    letterSpacing: -0.2,
   },
   requiredDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#ef4444',
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
   },
   input: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     fontSize: 16,
     color: '#1f2937',
     backgroundColor: '#ffffff',
     fontWeight: '500',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  pickerWrap: {
+  pickerContainer: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: '#ffffff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 3,
+    overflow: 'hidden',
   },
-  imagesSection: { marginBottom: 24 },
+  picker: {
+    color: '#1f2937',
+    fontSize: 16,
+  },
+  imagesSection: {
+    marginBottom: 32,
+    marginTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#374151',
-    marginBottom: 16,
-    paddingLeft: 4,
+    letterSpacing: -0.3,
+  },
+  sectionBadge: {
+    backgroundColor: '#7c3aed',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  sectionBadgeText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 12,
   },
   imageCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 18,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
   submitBtn: {
-    backgroundColor: '#4f46e5',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-    marginTop: 8,
-    marginBottom: 20,
+    backgroundColor: '#7c3aed',
+    paddingVertical: 18,
+    borderRadius: 20,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+    marginTop: 16,
+    marginBottom: 30,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   submitBtnDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: '#d1d5db',
     shadowColor: '#6b7280',
     shadowOpacity: 0.2,
     elevation: 4,
+    borderColor: 'transparent',
+  },
+  submitBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   submitBtnText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 0.5,
+    marginRight: 12,
+  },
+  submitBtnIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  submitBtnIconText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 
   // Readonly total box
   readonlyBox: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     backgroundColor: '#f9fafb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  readonlyText: { color: '#1f2937', fontWeight: '700', fontSize: 16 },
-  hint: { color: '#6b7280', marginTop: 6 },
+  readonlyBoxActive: {
+    borderColor: '#7c3aed',
+    backgroundColor: '#faf5ff',
+    shadowColor: '#7c3aed',
+    shadowOpacity: 0.1,
+  },
+  readonlyText: {
+    color: '#1f2937',
+    fontWeight: '700',
+    fontSize: 17,
+    letterSpacing: -0.2,
+  },
+  hint: {
+    color: '#6b7280',
+    marginTop: 8,
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
 });

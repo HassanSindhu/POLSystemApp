@@ -10,6 +10,7 @@ import {
   Platform,
   StatusBar,
   KeyboardAvoidingView,
+  Linking, // ⟵ NEW
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -100,15 +101,59 @@ export default function Traveling() {
     }
   }, [isFormValid, officer, vehicle, preMeter, preMeterImg, fromLocation, toLocation, resetForm, saveToStorage]);
 
+  // NEW: Open external Maps with start & end from inputs (no API key required)
+  const openExternalMaps = useCallback(async () => {
+    const from = fromLocation.trim();
+    const to = toLocation.trim();
+    if (!from || !to) {
+      Alert.alert('Missing', 'براہِ کرم Start Travel From اور Travel To دونوں درج کریں۔');
+      return;
+    }
+
+    const origin = encodeURIComponent(from);
+    const dest = encodeURIComponent(to);
+
+    // Prefer Google Maps app if available, else Apple Maps on iOS, else web fallback
+    const googleAppURL = `comgooglemaps://?saddr=${origin}&daddr=${dest}&directionsmode=driving`;
+    const appleMapsURL = `maps://?saddr=${origin}&daddr=${dest}&dirflg=d`;
+    const googleWebURL  = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=driving`;
+
+    try {
+      if (Platform.OS === 'ios') {
+        const hasGoogle = await Linking.canOpenURL('comgooglemaps://');
+        if (hasGoogle) {
+          await Linking.openURL(googleAppURL);
+        } else {
+          await Linking.openURL(appleMapsURL);
+        }
+      } else {
+        const hasGoogle = await Linking.canOpenURL('comgooglemaps://');
+        if (hasGoogle) {
+          await Linking.openURL(googleAppURL);
+        } else {
+          await Linking.openURL(googleWebURL);
+        }
+      }
+    } catch (e) {
+      console.error('Open maps error:', e);
+      Alert.alert('Maps Error', 'Maps کھولنے میں مسئلہ آیا—براہِ کرم دوبارہ کوشش کریں۔');
+    }
+  }, [fromLocation, toLocation]);
+
+  const canOpenDirections = fromLocation.trim().length > 0 && toLocation.trim().length > 0;
+
   return (
     <SafeAreaView style={styles.screenContainer}>
-      <StatusBar barStyle="light-content" backgroundColor="#4f46e5" />
+      <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Header (as per your current Travel header spacing) */}
-      <View style={styles.customHeader}>
+      {/* Enhanced Header with Gradient */}
+      <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
-          <Text style={styles.header}>Travel Log</Text>
-          <Text style={styles.subHeader}>اپنا سفر شروع کرنے سے پہلے تفصیل درج کریں</Text>
+          <View style={styles.headerContent}>
+            <Text style={styles.header}>Travel Log</Text>
+            <Text style={styles.subHeader}>اپنا سفر شروع کرنے سے پہلے تفصیل درج کریں</Text>
+          </View>
+          <View style={styles.headerDecoration} />
         </View>
       </View>
 
@@ -126,7 +171,7 @@ export default function Traveling() {
             {/* Travel Officer */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Officer Name:</Text>
+                <Text style={styles.label}>Officer Name</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -140,16 +185,18 @@ export default function Traveling() {
               />
             </View>
 
-            {/* Vehicle Dropdown - NEW */}
+            {/* Vehicle Dropdown */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
                 <Text style={styles.label}>Vehicle</Text>
                 <View style={styles.requiredDot} />
               </View>
-              <View style={styles.pickerWrap}>
+              <View style={styles.pickerContainer}>
                 <Picker
                   selectedValue={vehicle}
                   onValueChange={setVehicle}
+                  style={styles.picker}
+                  dropdownIconColor="#7c3aed"
                 >
                   <Picker.Item label="Select vehicle" value="" />
                   {VEHICLES.map((v) => (
@@ -162,7 +209,7 @@ export default function Traveling() {
             {/* Pre Meter */}
             <View style={styles.inputContainer}>
               <View style={styles.labelContainer}>
-                <Text style={styles.label}>Meter Reading Start of journey</Text>
+                <Text style={styles.label}>Meter Reading (Start of Journey)</Text>
                 <View style={styles.requiredDot} />
               </View>
               <TextInput
@@ -179,10 +226,15 @@ export default function Traveling() {
 
             {/* Pre Meter Image */}
             <View style={styles.imagesSection}>
-              <Text style={styles.sectionTitle}>Required Image</Text>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Required Image</Text>
+                <View style={styles.sectionBadge}>
+                  <Text style={styles.sectionBadgeText}>1</Text>
+                </View>
+              </View>
               <View style={styles.imageCard}>
                 <ImageCaptureRow
-                  label="Meter Reading Start of journey Image"
+                  label="Meter Reading (Start of Journey) Image"
                   value={preMeterImg}
                   onChange={setPreMeterImg}
                 />
@@ -223,14 +275,35 @@ export default function Traveling() {
               />
             </View>
 
+            {/* NEW: Open Maps Button */}
+            <TouchableOpacity
+              onPress={openExternalMaps}
+              disabled={!canOpenDirections}
+              style={[
+                styles.submitBtn,
+                { marginBottom: 12, backgroundColor: canOpenDirections ? '#10b981' : '#d1d5db' },
+              ]}
+            >
+              <View style={styles.submitBtnContent}>
+                <Text style={styles.submitBtnText}>
+                  Open Directions in Maps
+                </Text>
+              </View>
+            </TouchableOpacity>
+
             {/* Save Button */}
             <TouchableOpacity
               style={[styles.submitBtn, !isFormValid && styles.submitBtnDisabled]}
               onPress={handleSave}
               disabled={!isFormValid}
             >
-              <Text style={styles.submitBtnText}>Save</Text>
-          </TouchableOpacity>
+              <View style={styles.submitBtnContent}>
+                <Text style={styles.submitBtnText}>Save Travel Record</Text>
+                <View style={styles.submitBtnIcon}>
+                  <Text style={styles.submitBtnIconText}>✓</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
 
           </View>
         </ScrollView>
@@ -243,128 +316,202 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
+    paddingBottom: 40,
   },
-  customHeader: {
-    backgroundColor: '#4f46e5',
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+  headerContainer: {
+    backgroundColor: '#7c3aed',
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+    overflow: 'hidden',
   },
   headerBackground: {
     paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'ios' ? 10 : 8,
-    paddingBottom: 30,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 40,
+    position: 'relative',
+  },
+  headerContent: {
+    zIndex: 2,
+  },
+  headerDecoration: {
+    position: 'absolute',
+    top: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   header: {
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: '800',
     color: '#ffffff',
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subHeader: {
     fontSize: 16,
-    color: '#e0e7ff',
+    color: '#e9d5ff',
     fontWeight: '500',
+    letterSpacing: 0.3,
   },
-  container: { flexGrow: 1 },
+  container: {
+    flexGrow: 1,
+  },
   formContainer: {
-    padding: 20,
-    marginTop: -10,
+    padding: 24,
+    marginTop: -20,
   },
-  inputContainer: { marginBottom: 24 },
+  inputContainer: {
+    marginBottom: 28,
+  },
   labelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   label: {
     color: '#374151',
     fontSize: 16,
-    fontWeight: '600',
-    marginRight: 6,
+    fontWeight: '700',
+    marginRight: 8,
+    letterSpacing: -0.2,
   },
   requiredDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#ef4444',
+    shadowColor: '#ef4444',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
   },
   input: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     fontSize: 16,
     color: '#1f2937',
     backgroundColor: '#ffffff',
     fontWeight: '500',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  // Picker styled to match input (same as Fueling)
-  pickerWrap: {
+  pickerContainer: {
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: '#ffffff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 3,
+    overflow: 'hidden',
   },
-  imagesSection: { marginBottom: 24 },
+  picker: {
+    color: '#1f2937',
+    fontSize: 16,
+  },
+  imagesSection: {
+    marginBottom: 32,
+    marginTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: '#374151',
-    marginBottom: 16,
-    paddingLeft: 4,
+    letterSpacing: -0.3,
+  },
+  sectionBadge: {
+    backgroundColor: '#7c3aed',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  sectionBadgeText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 12,
   },
   imageCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 18,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
     borderWidth: 1,
     borderColor: '#f3f4f6',
   },
   submitBtn: {
-    backgroundColor: '#4f46e5',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    shadowColor: '#4f46e5',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-    marginTop: 8,
-    marginBottom: 20,
+    backgroundColor: '#7c3aed',
+    paddingVertical: 18,
+    borderRadius: 20,
+    shadowColor: '#7c3aed',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+    marginTop: 16,
+    marginBottom: 30,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+
   },
   submitBtnDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: '#d1d5db',
     shadowColor: '#6b7280',
     shadowOpacity: 0.2,
     elevation: 4,
+    borderColor: 'transparent',
+  },
+  submitBtnContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+
   },
   submitBtnText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 0.5,
+    marginRight: 12,
+  },
+  submitBtnIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+
+  },
+  submitBtnIconText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
