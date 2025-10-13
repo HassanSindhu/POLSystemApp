@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,20 +8,122 @@ import {
   StyleSheet,
   Platform,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_BASE_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api';
 
 export default function LoginScreen({ navigation }) {
-  const [email, setEmail] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCheckingToken, setIsCheckingToken] = useState(true);
 
-  const handleLogin = () => {
-    if (email.trim() && password.trim()) {
-      // Simple validation - any email/password will work for demo
-      navigation.replace('MainApp');
-    } else {
-      Alert.alert('Error', 'Please enter both email and password');
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkExistingLogin = async () => {
+      try {
+        const token = await AsyncStorage.getItem('userToken');
+        const userData = await AsyncStorage.getItem('userData');
+
+        if (token && userData) {
+          console.log('User already logged in, redirecting to main app...');
+          navigation.replace('MainApp');
+        }
+      } catch (error) {
+        console.error('Error checking existing login:', error);
+      } finally {
+        setIsCheckingToken(false);
+      }
+    };
+
+    checkExistingLogin();
+  }, [navigation]);
+
+  // Store token and user data
+  const storeUserData = async (token, user) => {
+    try {
+      await AsyncStorage.setItem('userToken', token);
+      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      console.log('User data stored successfully');
+    } catch (error) {
+      console.error('Error storing user data:', error);
     }
   };
+
+  const handleLogin = async () => {
+    // Validation
+    if (!mobileNumber.trim()) {
+      Alert.alert('Error', 'Please enter your mobile number');
+      return;
+    }
+
+    if (!password.trim()) {
+      Alert.alert('Error', 'Please enter your password');
+      return;
+    }
+
+    // Basic mobile number validation
+    const mobileRegex = /^03\d{9}$/;
+    if (!mobileRegex.test(mobileNumber)) {
+      Alert.alert('Error', 'Please enter a valid mobile number (03XXXXXXXXX)');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mobileNumber: mobileNumber.trim(),
+          password: password.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Login successful
+        console.log('Login successful:', data);
+
+        // Store token and user data
+        await storeUserData(data.token, data.user);
+
+        Alert.alert('Success', `Welcome back, ${data.user.name}!`);
+        navigation.replace('MainApp');
+      } else {
+        // Login failed
+        Alert.alert('Login Failed', data.message || 'Invalid mobile number or password');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert('Error', 'Network error. Please check your connection and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Demo login for testing
+  const handleDemoLogin = () => {
+    setMobileNumber('03335900657');
+    setPassword('Test@1234');
+    Alert.alert('Demo Credentials', 'Mobile: 03335900657\nPassword: Test@1234\n\nClick Sign In to login with demo credentials.');
+  };
+
+  // Show loading while checking token
+  if (isCheckingToken) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#7c3aed" />
+        <Text style={styles.loadingText}>Checking login status...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.loginContainer}>
@@ -39,17 +141,19 @@ export default function LoginScreen({ navigation }) {
       </View>
 
       <View style={styles.loginForm}>
-        {/* Email Input */}
+        {/* Mobile Number Input */}
         <View style={styles.inputContainer}>
-          <Text style={styles.inputLabel}>Email Address</Text>
+          <Text style={styles.inputLabel}>Mobile Number</Text>
           <TextInput
             style={styles.input}
-            value={email}
-            onChangeText={setEmail}
-            placeholder="Enter your email"
+            value={mobileNumber}
+            onChangeText={setMobileNumber}
+            placeholder="Enter your mobile number"
             placeholderTextColor="#9ca3af"
-            keyboardType="email-address"
+            keyboardType="phone-pad"
             autoCapitalize="none"
+            maxLength={11}
+            editable={!isLoading}
           />
         </View>
 
@@ -63,18 +167,41 @@ export default function LoginScreen({ navigation }) {
             placeholder="Enter your password"
             placeholderTextColor="#9ca3af"
             secureTextEntry
+            editable={!isLoading}
           />
         </View>
 
         {/* Login Button */}
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>Sign In</Text>
+        <TouchableOpacity
+          style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
+          onPress={handleLogin}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.loginButtonText}>Sign In</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* Demo Login Button */}
+        <TouchableOpacity
+          style={styles.demoButton}
+          onPress={handleDemoLogin}
+          disabled={isLoading}
+        >
+          <Text style={styles.demoButtonText}>Use Demo Credentials</Text>
         </TouchableOpacity>
 
         {/* Demo Info */}
         <View style={styles.demoInfo}>
+          <Text style={styles.demoTitle}>Demo Credentials</Text>
           <Text style={styles.demoText}>
-            Demo: Enter any email and password to login
+            Mobile: 03335900657{'\n'}
+            Password: Test@1234
+          </Text>
+          <Text style={styles.demoNote}>
+            Use the "Use Demo Credentials" button to auto-fill
           </Text>
         </View>
       </View>
@@ -86,6 +213,18 @@ const styles = StyleSheet.create({
   loginContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   loginHeader: {
     backgroundColor: '#7c3aed',
@@ -174,11 +313,29 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
+  loginButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    shadowOpacity: 0.2,
+  },
   loginButtonText: {
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 18,
     letterSpacing: 0.5,
+  },
+  demoButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#7c3aed',
+    marginTop: 12,
+  },
+  demoButtonText: {
+    color: '#7c3aed',
+    fontWeight: '600',
+    fontSize: 16,
   },
   demoInfo: {
     marginTop: 24,
@@ -188,10 +345,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e0f2fe',
   },
+  demoTitle: {
+    color: '#0369a1',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
   demoText: {
     color: '#0369a1',
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  demoNote: {
+    color: '#0284c7',
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
