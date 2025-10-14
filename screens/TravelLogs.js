@@ -2,19 +2,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,
-  Platform, StatusBar, Animated, TextInput, ScrollView, Image, ActivityIndicator, RefreshControl
+  Platform, StatusBar, Animated, TextInput, ScrollView, Image,
+  ActivityIndicator, RefreshControl, PermissionsAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
 import ImageCaptureRow from '../components/ImageCaptureRow';
+import Geolocation from '@react-native-community/geolocation';
 
 const STORAGE_KEY = 'TRAVEL_LOGS';
 const Stack = createNativeStackNavigator();
 
-// API (pending logs - GET)
+// API endpoints
 const PENDING_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api/travel/travel-logs/pending';
+const COMPLETE_BASE_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api/travel/travel-logs';
+const BUCKET_UPLOAD_URL = 'https://cms-dev.gisforestry.com/backend/upload/new';
 
 /** ---------- Root wrapper with inner Stack (List -> Complete) ---------- */
 export default function TravelLogs() {
@@ -33,27 +37,23 @@ export default function TravelLogs() {
 
 /** ---------------------------- LIST SCREEN ---------------------------- */
 function TravelLogsList({ navigation }) {
-  const [logs, setLogs] = useState([]);      // unified rows (server shaped like local)
+  const [logs, setLogs] = useState([]);      // server rows adapted to local shape
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   // Map server rows to your old local-row shape so UI stays identical
   const adaptServerRow = (r) => ({
-    // your list expects these:
     id: r?._id || `srv_${Math.random()}`,
     officer: r?.officer || '',
     from: r?.travelFrom || r?.from || '',
     to: r?.travelTo || r?.to || '',
     preMeter: r?.preMeter ?? '',
     preMeterImg: r?.preMeterImg || null,
-    // your list uses meta.timestamp for display/sort
     meta: { timestamp: r?.timestamp || r?.createdAt || new Date().toISOString() },
-    // your list shows Completed/Pending based on presence of post.completed
     post: (r?.status || '').toLowerCase() === 'completed'
       ? { completed: true, postMeter: r?.postMeter ?? '', km: r?.km ?? 0, fuelPercent: r?.fuelPercent ?? 0 }
       : undefined,
-    // keep whole server record if you need it inside details screen later
     __server: r,
   });
 
@@ -71,7 +71,7 @@ function TravelLogsList({ navigation }) {
 
       const res = await fetch(url, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` }, // do NOT send Content-Type on GET
+        headers: { Authorization: `Bearer ${token}` }, // note: no Content-Type for GET
       });
 
       let data;
@@ -225,13 +225,13 @@ function TravelLogComplete({ route, navigation }) {
   const [postMeterImg, setPostMeterImg] = useState(null);
   const [fuelPercent, setFuelPercent] = useState(0);
   const [fuelMeterImg, setFuelMeterImg] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   // load by id from local if present, else adapt server record into same shape
   useEffect(() => {
     (async () => {
       try {
         if (serverRecord) {
-          // adapt into your local record shape so the UI below stays identical
           setRecord({
             id: serverRecord._id,
             officer: serverRecord.officer || '',
@@ -240,7 +240,6 @@ function TravelLogComplete({ route, navigation }) {
             preMeter: serverRecord.preMeter ?? '',
             preMeterImg: serverRecord.preMeterImg || null,
             meta: { timestamp: serverRecord.timestamp || serverRecord.createdAt || new Date().toISOString() },
-            // mark pending by default (server sends "started")
             post: (serverRecord.status || '').toLowerCase() === 'completed'
               ? { completed: true, postMeter: serverRecord.postMeter ?? '', km: serverRecord.km ?? 0, fuelPercent: serverRecord.fuelPercent ?? 0 }
               : undefined,
@@ -278,6 +277,146 @@ function TravelLogComplete({ route, navigation }) {
   const isFormValid = !isCompleted && record && Number.isFinite(postNum) && postMeter !== '' && postNum >= pre
     && !!postMeterImg?.uri && !!fuelMeterImg?.uri;
 
+  // ---- helpers: permissions + location (best effort) ----
+  const requestLocationPermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+          {
+            title: 'Location Permission',
+            message: 'Completing travel requires your location.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch {
+        return false;
+      }
+    } else {
+      try {
+        const auth = await Geolocation.requestAuthorization?.('whenInUse');
+        return auth === 'granted' || auth === 'authorized';
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  const getCurrentLocation = async () => {
+    const ok = await requestLocationPermission();
+    if (!ok) return null;
+    return new Promise((resolve) => {
+      Geolocation.getCurrentPosition(
+        pos => resolve([pos.coords.latitude, pos.coords.longitude]),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 8000 }
+      );
+    });
+  };
+
+  // ---- bucket image upload ----
+  const uploadImageToBucket = async (imageObj) => {
+    if (!imageObj?.uri) return null;
+    const uri = imageObj.uri;
+
+    if (/^https?:\/\//i.test(uri)) return uri;
+
+    const name = uri.split('/').pop() || 'image.jpg';
+    const extMatch = /\.(\w+)$/.exec(name);
+    const type = extMatch ? `image/${extMatch[1]}` : 'image/jpeg';
+
+    const fd = new FormData();
+    fd.append('files', { uri, name, type });
+    fd.append('uploadPath', 'DriverAPP');
+    fd.append('isMulti', 'true');
+
+    const res = await fetch(BUCKET_UPLOAD_URL, {
+      method: 'POST',
+      body: fd,
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    let data;
+    try { data = await res.json(); }
+    catch {
+      const txt = await res.text();
+      const urlMatch = txt.match(/https?:\/\/[^\s"'<>\\]+/i);
+      if (res.ok && urlMatch) return urlMatch[0];
+      throw new Error('Image upload failed');
+    }
+
+    if (!res.ok) throw new Error(data?.message || 'Image upload failed');
+
+    const candidates = [];
+    if (Array.isArray(data)) candidates.push(...data);
+    else if (data?.data && Array.isArray(data.data)) candidates.push(...data.data);
+    else if (data) candidates.push(data);
+
+    for (const it of candidates) {
+      if (typeof it === 'string' && /^https?:\/\//i.test(it)) return it;
+      if (it?.availableSizes?.image) return it.availableSizes.image;
+      if (it?.url) return it.url;
+      if (it?.Location) return it.Location;
+    }
+
+    const flat = JSON.stringify(data);
+    const anyUrl = flat.match(/https?:\/\/[^\s"'<>\\]+/i);
+    if (anyUrl) return anyUrl[0];
+
+    throw new Error('Image upload response did not include a URL');
+  };
+
+  // ---- PATCH /complete ----
+  const submitCompletion = async () => {
+    if (!record) return;
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) throw new Error('Auth token missing. Please login again.');
+
+    // Get GPS (optional, don’t block if fails)
+    let coords = await getCurrentLocation();
+
+    // Upload both images
+    const postMeterImgUrl = await uploadImageToBucket(postMeterImg);
+    const fuelMeterImgUrl = await uploadImageToBucket(fuelMeterImg);
+
+    // Build payload
+    const payload = {
+      postMeter: postNum,
+      postMeterImg: postMeterImgUrl,
+      fuelPercent,
+      fuelMeterImg: fuelMeterImgUrl,
+      // Server expects "Coordinates" (capitalized) as per your examples
+      Coordinates: Array.isArray(coords) ? coords : undefined,
+    };
+
+    const url = `${COMPLETE_BASE_URL}/${record.id}/complete`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let data;
+    try { data = await res.json(); }
+    catch { data = { message: await res.text() }; }
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        await AsyncStorage.multiRemove(['userToken', 'userData']);
+        throw new Error(data?.message || 'Session expired. Please login again.');
+      }
+      throw new Error(data?.message || 'Failed to complete travel log.');
+    }
+
+    return data;
+  };
+
   const handleSave = useCallback(async () => {
     if (!record) return;
     if (!isFormValid) {
@@ -286,47 +425,17 @@ function TravelLogComplete({ route, navigation }) {
     }
 
     try {
-      // keep same local behaviour for now (you’ll replace with server “complete” API later)
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      const list = raw ? JSON.parse(raw) : [];
-      const idx = list.findIndex((x) => x.id === record.id);
-      if (idx < 0) {
-        // if it came from server and isn’t in local yet, append as completed locally
-        list.push({
-          ...record,
-          post: {
-            completed: true,
-            postMeter: postNum,
-            postMeterImg: postMeterImg.uri,
-            km,
-            fuelPercent,
-            fuelMeterImg: fuelMeterImg.uri,
-            timestamp: new Date().toISOString(),
-          },
-        });
-      } else {
-        list[idx] = {
-          ...list[idx],
-          post: {
-            completed: true,
-            postMeter: postNum,
-            postMeterImg: postMeterImg.uri,
-            km,
-            fuelPercent,
-            fuelMeterImg: fuelMeterImg.uri,
-            timestamp: new Date().toISOString(),
-          },
-        };
-      }
-
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-      Alert.alert('Success', 'Post-travel details saved (local).');
+      setSubmitting(true);
+      await submitCompletion();
+      Alert.alert('Success', 'Travel marked as completed!');
       navigation.goBack();
     } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Could not save post details. Try again.');
+      console.error('[Complete PATCH] error:', e);
+      Alert.alert('Error', e?.message || 'Could not complete the travel log.');
+    } finally {
+      setSubmitting(false);
     }
-  }, [record, isFormValid, postNum, postMeterImg, km, fuelPercent, fuelMeterImg, navigation]);
+  }, [record, isFormValid, submitCompletion, navigation]);
 
   if (!record) {
     return (
@@ -356,7 +465,6 @@ function TravelLogComplete({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20 }}>
-
         {/* Previous details (readonly) */}
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
@@ -396,7 +504,7 @@ function TravelLogComplete({ route, navigation }) {
               onChangeText={(t) => setPostMeter(t.replace(/[^\d]/g, ''))}
               placeholder="Enter post meter value"
               keyboardType="number-pad"
-              editable={!isCompleted}
+              editable={!isCompleted && !submitting}
             />
             <Text style={styles.hint}>KM Travel (auto): <Text style={{ fontWeight: '700' }}>{km}</Text></Text>
 
@@ -406,7 +514,7 @@ function TravelLogComplete({ route, navigation }) {
                 label="Post Meter Image"
                 value={postMeterImg}
                 onChange={setPostMeterImg}
-                disabled={isCompleted}
+                disabled={isCompleted || submitting}
               />
             </View>
 
@@ -419,7 +527,7 @@ function TravelLogComplete({ route, navigation }) {
                 step={1}
                 value={fuelPercent}
                 onValueChange={setFuelPercent}
-                disabled={isCompleted}
+                disabled={isCompleted || submitting}
                 minimumTrackTintColor="#7c3aed"
                 maximumTrackTintColor="#e5e7eb"
                 thumbTintColor="#7c3aed"
@@ -433,17 +541,24 @@ function TravelLogComplete({ route, navigation }) {
                 label="Fuel Meter Image"
                 value={fuelMeterImg}
                 onChange={setFuelMeterImg}
-                disabled={isCompleted}
+                disabled={isCompleted || submitting}
               />
             </View>
 
             {/* Save button */}
             <TouchableOpacity
-              style={[styles.submitBtn, !isFormValid && styles.submitBtnDisabled]}
+              style={[
+                styles.submitBtn,
+                (!isFormValid || submitting) && styles.submitBtnDisabled,
+              ]}
               onPress={handleSave}
-              disabled={!isFormValid}
+              disabled={!isFormValid || submitting}
             >
-              <Text style={styles.submitBtnText}>Save Post Details</Text>
+              {submitting ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.submitBtnText}>Save Post Details</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -457,20 +572,6 @@ function TravelLogComplete({ route, navigation }) {
               <Text style={styles.imageLabel}>Pre Meter Image</Text>
               {record.preMeterImg && (
                 <Image source={{ uri: record.preMeterImg }} style={styles.previewImage} />
-              )}
-            </View>
-
-            <View style={styles.imageSection}>
-              <Text style={styles.imageLabel}>Post Meter Image</Text>
-              {record.post.postMeterImg && (
-                <Image source={{ uri: record.post.postMeterImg }} style={styles.previewImage} />
-              )}
-            </View>
-
-            <View style={styles.imageSection}>
-              <Text style={styles.imageLabel}>Fuel Meter Image</Text>
-              {record.post.fuelMeterImg && (
-                <Image source={{ uri: record.post.fuelMeterImg }} style={styles.previewImage} />
               )}
             </View>
           </View>
@@ -492,7 +593,7 @@ function ReadonlyRow({ label, value }) {
 
 /** ------------------------------- styles ------------------------------ */
 const styles = StyleSheet.create({
-  screenContainer: { flex: 1, backgroundColor: '#f8fafc' },
+  screenContainer: { flex: 1, backgroundColor: '#f8fafc' , paddingBottom: 40},
 
   // Header
   headerContainer: {
