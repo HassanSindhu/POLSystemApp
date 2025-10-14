@@ -1,7 +1,8 @@
+// screens/TravelLogs.js
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,
-  Platform, StatusBar, Animated, TextInput, ScrollView, Image
+  Platform, StatusBar, Animated, TextInput, ScrollView, Image, ActivityIndicator, RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,12 +13,15 @@ import ImageCaptureRow from '../components/ImageCaptureRow';
 const STORAGE_KEY = 'TRAVEL_LOGS';
 const Stack = createNativeStackNavigator();
 
+// API (pending logs - GET)
+const PENDING_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api/travel/travel-logs/pending';
+
 /** ---------- Root wrapper with inner Stack (List -> Complete) ---------- */
 export default function TravelLogs() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerShown: false,
+        headerShown: false, // keep native header hidden (you have custom header)
         animation: Platform.OS === 'ios' ? 'default' : 'fade',
       }}
     >
@@ -29,32 +33,98 @@ export default function TravelLogs() {
 
 /** ---------------------------- LIST SCREEN ---------------------------- */
 function TravelLogsList({ navigation }) {
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState([]);      // unified rows (server shaped like local)
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  const loadLogs = useCallback(async () => {
+  // Map server rows to your old local-row shape so UI stays identical
+  const adaptServerRow = (r) => ({
+    // your list expects these:
+    id: r?._id || `srv_${Math.random()}`,
+    officer: r?.officer || '',
+    from: r?.travelFrom || r?.from || '',
+    to: r?.travelTo || r?.to || '',
+    preMeter: r?.preMeter ?? '',
+    preMeterImg: r?.preMeterImg || null,
+    // your list uses meta.timestamp for display/sort
+    meta: { timestamp: r?.timestamp || r?.createdAt || new Date().toISOString() },
+    // your list shows Completed/Pending based on presence of post.completed
+    post: (r?.status || '').toLowerCase() === 'completed'
+      ? { completed: true, postMeter: r?.postMeter ?? '', km: r?.km ?? 0, fuelPercent: r?.fuelPercent ?? 0 }
+      : undefined,
+    // keep whole server record if you need it inside details screen later
+    __server: r,
+  });
+
+  const fetchPending = useCallback(async () => {
+    setError('');
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      setLogs(raw ? JSON.parse(raw) : []);
+      const token = await AsyncStorage.getItem('userToken');
+      const userDataStr = await AsyncStorage.getItem('userData');
+      if (!token || !userDataStr) throw new Error('Not authenticated. Please login again.');
+      const user = JSON.parse(userDataStr);
+      const userId = user?._id;
+      if (!userId) throw new Error('User ID missing in session.');
+
+      const url = `${PENDING_URL}?userId=${encodeURIComponent(userId)}&vehicle=&perPage=10&pageNo=1`;
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` }, // do NOT send Content-Type on GET
+      });
+
+      let data;
+      try { data = await res.json(); }
+      catch { data = { message: await res.text() }; }
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          await AsyncStorage.multiRemove(['userToken', 'userData']);
+          throw new Error('Session expired. Please login again.');
+        }
+        throw new Error(data?.message || 'Failed to load pending travel logs.');
+      }
+
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      const adapted = rows.map(adaptServerRow)
+        .sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || ''));
+      setLogs(adapted);
     } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Unable to load travel logs.');
+      console.error('[TravelLogs] fetch error', e);
+      setError(e?.message || 'Error loading logs.');
+      setLogs([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    const unsub = navigation.addListener('focus', loadLogs);
+    const unsub = navigation.addListener('focus', () => {
+      setLoading(true);
+      fetchPending();
+    });
     return unsub;
-  }, [navigation, loadLogs]);
+  }, [navigation, fetchPending]);
 
-  const renderItem = ({ item }) => <LogRow item={item} onPress={() => {
-    navigation.navigate('TravelLogComplete', { id: item.id });
-  }} />;
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchPending();
+  }, [fetchPending]);
+
+  const renderItem = ({ item }) => (
+    <LogRow
+      item={item}
+      onPress={() => navigation.navigate('TravelLogComplete', { id: item.id, serverRecord: item.__server || null })}
+    />
+  );
 
   return (
     <SafeAreaView style={styles.screenContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Updated Header */}
+      {/* Custom Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
           <View style={styles.headerContent}>
@@ -65,21 +135,36 @@ function TravelLogsList({ navigation }) {
         </View>
       </View>
 
-      <FlatList
-        data={logs.sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || ''))}
-        keyExtractor={(it) => it.id}
-        contentContainerStyle={{ padding: 16 }}
-        renderItem={renderItem}
-        ListEmptyComponent={<Text style={styles.emptyText}>No travel logs saved yet.</Text>}
-      />
+      {loading ? (
+        <View style={{ padding: 24, alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#7c3aed" />
+          <Text style={{ marginTop: 8, color: '#6b7280' }}>Loading pending logs…</Text>
+        </View>
+      ) : error ? (
+        <View style={{ padding: 24, alignItems: 'center' }}>
+          <Text style={{ color: '#ef4444', textAlign: 'center', marginBottom: 8 }}>{error}</Text>
+          <TouchableOpacity onPress={fetchPending} style={{ backgroundColor: '#7c3aed', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}>
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={logs}
+          keyExtractor={(it) => it.id}
+          contentContainerStyle={{ padding: 16 }}
+          renderItem={renderItem}
+          ListEmptyComponent={<Text style={styles.emptyText}>No travel logs found.</Text>}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#7c3aed" />}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 function LogRow({ item, onPress }) {
   const isCompleted = !!item?.post?.completed;
-  // pulse animation for pending rows
   const pulse = useRef(new Animated.Value(0.6)).current;
+
   useEffect(() => {
     if (!isCompleted) {
       const loop = Animated.loop(
@@ -102,7 +187,6 @@ function LogRow({ item, onPress }) {
           isCompleted ? styles.cardDone : styles.cardPending,
         ]}
       >
-        {/* Improved layout with flex to handle long text */}
         <View style={styles.cardHeader}>
           <View style={styles.cardContent}>
             <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
@@ -133,7 +217,7 @@ function LogRow({ item, onPress }) {
 
 /** -------------------------- COMPLETE SCREEN -------------------------- */
 function TravelLogComplete({ route, navigation }) {
-  const { id } = route.params || {};
+  const { id, serverRecord } = route.params || {};
   const [record, setRecord] = useState(null);
 
   // new fields
@@ -142,16 +226,33 @@ function TravelLogComplete({ route, navigation }) {
   const [fuelPercent, setFuelPercent] = useState(0);
   const [fuelMeterImg, setFuelMeterImg] = useState(null);
 
-  // load specific record by id
+  // load by id from local if present, else adapt server record into same shape
   useEffect(() => {
     (async () => {
       try {
+        if (serverRecord) {
+          // adapt into your local record shape so the UI below stays identical
+          setRecord({
+            id: serverRecord._id,
+            officer: serverRecord.officer || '',
+            from: serverRecord.travelFrom || '',
+            to: serverRecord.travelTo || '',
+            preMeter: serverRecord.preMeter ?? '',
+            preMeterImg: serverRecord.preMeterImg || null,
+            meta: { timestamp: serverRecord.timestamp || serverRecord.createdAt || new Date().toISOString() },
+            // mark pending by default (server sends "started")
+            post: (serverRecord.status || '').toLowerCase() === 'completed'
+              ? { completed: true, postMeter: serverRecord.postMeter ?? '', km: serverRecord.km ?? 0, fuelPercent: serverRecord.fuelPercent ?? 0 }
+              : undefined,
+          });
+          return;
+        }
+
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         const list = raw ? JSON.parse(raw) : [];
         const found = list.find((x) => x.id === id);
         setRecord(found || null);
 
-        // if already completed, prefill readonly (and disable)
         if (found?.post?.completed) {
           setPostMeter(String(found.post.postMeter || ''));
           setFuelPercent(found.post.fuelPercent ?? 0);
@@ -164,14 +265,12 @@ function TravelLogComplete({ route, navigation }) {
         navigation.goBack();
       }
     })();
-  }, [id, navigation]);
+  }, [id, serverRecord, navigation]);
 
   const pre = useMemo(() => Number(record?.preMeter ?? 0), [record]);
   const postNum = useMemo(() => Number(postMeter || 0), [postMeter]);
   const km = useMemo(() => {
-    if (record?.post?.completed) {
-      return record.post.km;
-    }
+    if (record?.post?.completed) return record.post.km;
     return Math.max(0, (Number.isFinite(postNum) ? postNum : 0) - (Number.isFinite(pre) ? pre : 0));
   }, [postNum, pre, record]);
 
@@ -187,26 +286,41 @@ function TravelLogComplete({ route, navigation }) {
     }
 
     try {
+      // keep same local behaviour for now (you’ll replace with server “complete” API later)
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       const list = raw ? JSON.parse(raw) : [];
       const idx = list.findIndex((x) => x.id === record.id);
-      if (idx < 0) throw new Error('Record not found');
-
-      list[idx] = {
-        ...list[idx],
-        post: {
-          completed: true,
-          postMeter: postNum,
-          postMeterImg: postMeterImg.uri,
-          km,
-          fuelPercent,
-          fuelMeterImg: fuelMeterImg.uri,
-          timestamp: new Date().toISOString(),
-        },
-      };
+      if (idx < 0) {
+        // if it came from server and isn’t in local yet, append as completed locally
+        list.push({
+          ...record,
+          post: {
+            completed: true,
+            postMeter: postNum,
+            postMeterImg: postMeterImg.uri,
+            km,
+            fuelPercent,
+            fuelMeterImg: fuelMeterImg.uri,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } else {
+        list[idx] = {
+          ...list[idx],
+          post: {
+            completed: true,
+            postMeter: postNum,
+            postMeterImg: postMeterImg.uri,
+            km,
+            fuelPercent,
+            fuelMeterImg: fuelMeterImg.uri,
+            timestamp: new Date().toISOString(),
+          },
+        };
+      }
 
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-      Alert.alert('Success', 'Post-travel details saved.');
+      Alert.alert('Success', 'Post-travel details saved (local).');
       navigation.goBack();
     } catch (e) {
       console.error(e);
@@ -226,7 +340,7 @@ function TravelLogComplete({ route, navigation }) {
     <SafeAreaView style={styles.screenContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Updated Header */}
+      {/* Custom Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
           <View style={styles.headerContent}>
@@ -380,7 +494,7 @@ function ReadonlyRow({ label, value }) {
 const styles = StyleSheet.create({
   screenContainer: { flex: 1, backgroundColor: '#f8fafc' },
 
-  // Updated Header Styles
+  // Header
   headerContainer: {
     backgroundColor: '#7c3aed',
     borderBottomLeftRadius: 32,
@@ -398,9 +512,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     position: 'relative',
   },
-  headerContent: {
-    zIndex: 2,
-  },
+  headerContent: { zIndex: 2 },
   headerDecoration: {
     position: 'absolute',
     top: -50,
@@ -410,19 +522,8 @@ const styles = StyleSheet.create({
     borderRadius: 100,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  header: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 8,
-    letterSpacing: -0.5,
-  },
-  subHeader: {
-    fontSize: 16,
-    color: '#e9d5ff',
-    fontWeight: '500',
-    letterSpacing: 0.3,
-  },
+  header: { fontSize: 36, fontWeight: '800', color: '#fff', marginBottom: 8, letterSpacing: -0.5 },
+  subHeader: { fontSize: 16, color: '#e9d5ff', fontWeight: '500', letterSpacing: 0.3 },
 
   emptyText: { textAlign: 'center', color: '#6b7280', marginTop: 40 },
 
@@ -442,132 +543,46 @@ const styles = StyleSheet.create({
   cardPending: { borderColor: '#fde68a', backgroundColor: '#fffbeb' },
   cardDone: { borderColor: '#e5e7eb', backgroundColor: '#ffffff' },
 
-  // Improved card layout
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  cardContent: {
-    flex: 1,
-    marginRight: 12, // Space between content and badge
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  cardRoute: {
-    fontSize: 14,
-    color: '#374151',
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  cardMeta: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  completedMeta: {
-    fontSize: 12,
-    color: '#10b981',
-    fontWeight: '600',
-    marginTop: 4,
-  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  cardContent: { flex: 1, marginRight: 12 },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  cardRoute: { fontSize: 14, color: '#374151', marginBottom: 8, fontWeight: '500' },
+  cardMeta: { fontSize: 12, color: '#6b7280', marginBottom: 2 },
+  completedMeta: { fontSize: 12, color: '#10b981', fontWeight: '600', marginTop: 4 },
 
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    minWidth: 70, // Fixed minimum width
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
+    minWidth: 70, alignItems: 'center', justifyContent: 'center',
   },
   badgePending: { backgroundColor: '#fcd34d' },
   badgeDone: { backgroundColor: '#a7f3d0' },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
-  },
+  badgeText: { fontSize: 12, fontWeight: '700', color: '#111827' },
 
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#374151',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  statusPending: {
-    backgroundColor: '#fef3c7',
-  },
-  statusCompleted: {
-    backgroundColor: '#d1fae5',
-  },
-  statusBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#374151',
-  },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#374151' },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  statusPending: { backgroundColor: '#fef3c7' },
+  statusCompleted: { backgroundColor: '#d1fae5' },
+  statusBadgeText: { fontSize: 12, fontWeight: '700', color: '#374151' },
 
   readonlyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
   },
-  readonlyLabel: {
-    color: '#6b7280',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  readonlyValue: {
-    color: '#111827',
-    fontWeight: '600',
-    fontSize: 14,
-  },
+  readonlyLabel: { color: '#6b7280', fontSize: 14, fontWeight: '500' },
+  readonlyValue: { color: '#111827', fontWeight: '600', fontSize: 14 },
 
   inputLabel: { color: '#374151', fontSize: 14, fontWeight: '600', marginBottom: 6 },
   input: {
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#1f2937',
-    backgroundColor: '#ffffff',
+    borderWidth: 2, borderColor: '#e5e7eb', borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, color: '#1f2937', backgroundColor: '#ffffff',
     fontWeight: '500',
   },
   hint: { color: '#6b7280', marginTop: 6 },
 
-  imageSection: {
-    marginBottom: 20,
-  },
-  imageLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  previewImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-    backgroundColor: '#f3f4f6',
-  },
+  imageSection: { marginBottom: 20 },
+  imageLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  previewImage: { width: '100%', height: 200, borderRadius: 12, backgroundColor: '#f3f4f6' },
 
   submitBtn: {
     backgroundColor: '#7c3aed',

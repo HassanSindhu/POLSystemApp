@@ -52,10 +52,14 @@ export default function LoginScreen({ navigation }) {
     checkExistingLogin();
   }, [navigation]);
 
-  // Store token and user data
+  // Store token and user data (+ userId separately)
   const storeUserData = async (token, user) => {
-    await AsyncStorage.setItem('userToken', token);
-    await AsyncStorage.setItem('userData', JSON.stringify(user));
+    const userId = user?._id ? String(user._id) : '';
+    await AsyncStorage.multiSet([
+      ['userToken', token],
+      ['userData', JSON.stringify(user)],
+      ['userId', userId],
+    ]);
   };
 
   const handleLogin = async () => {
