@@ -10,6 +10,12 @@ import TravelLogs from './screens/TravelLogs';
 import LoginScreen from './screens/LoginScreen';
 import ProfileScreen from './screens/ProfileScreen';
 
+// NEW admin screens
+import AdminFuelStats from './screens/AdminFuelStats';
+import AdminFuelHistory from './screens/AdminFuelHistory';
+import AdminDriverStats from './screens/AdminDriverStats';
+import AdminDriverDetails from './screens/AdminDriverDetails';
+
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
@@ -30,6 +36,7 @@ const TabIcon = ({ focused, emoji, color }) => (
   </View>
 );
 
+// Regular user tabs (unchanged)
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -46,11 +53,7 @@ function MainTabs() {
         component={Fueling}
         options={{
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              focused={focused}
-              emoji="⛽"
-              color={color}
-            />
+            <TabIcon focused={focused} emoji="⛽" color={color} />
           ),
         }}
       />
@@ -59,11 +62,7 @@ function MainTabs() {
         component={Traveling}
         options={{
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              focused={focused}
-              emoji="🚗"
-              color={color}
-            />
+            <TabIcon focused={focused} emoji="🚗" color={color} />
           ),
         }}
       />
@@ -72,11 +71,7 @@ function MainTabs() {
         component={TravelLogs}
         options={{
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              focused={focused}
-              emoji="📋"
-              color={color}
-            />
+            <TabIcon focused={focused} emoji="📋" color={color} />
           ),
         }}
       />
@@ -85,11 +80,7 @@ function MainTabs() {
         component={ProfileScreen}
         options={{
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon
-              focused={focused}
-              emoji="👤"
-              color={color}
-            />
+            <TabIcon focused={focused} emoji="👤" color={color} />
           ),
         }}
       />
@@ -97,12 +88,79 @@ function MainTabs() {
   );
 }
 
+// Admin tabs (Fuel Stats first)
+function AdminTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: '#7c3aed',
+        tabBarInactiveTintColor: '#6b7280',
+        tabBarStyle: styles.tabBar,
+        tabBarLabelStyle: styles.tabLabel,
+      }}
+      initialRouteName="Fuel Stats"
+    >
+      <Tab.Screen
+        name="Fuel Stats"
+        component={AdminFuelStatsStack} // stack to include detail screen
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon focused={focused} emoji="📊" color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Driver Stats"
+        component={AdminDriverStatsStack}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon focused={focused} emoji="🧑‍✈️" color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          tabBarIcon: ({ focused, color }) => (
+            <TabIcon focused={focused} emoji="👤" color={color} />
+          ),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+// Small stacks inside admin tabs so we can push detail screens with headers
+const FuelStatsStack = createNativeStackNavigator();
+function AdminFuelStatsStack() {
+  return (
+    <FuelStatsStack.Navigator>
+      <FuelStatsStack.Screen name="AdminFuelStats" component={AdminFuelStats} options={{ headerShown: false }} />
+      <FuelStatsStack.Screen name="AdminFuelHistory" component={AdminFuelHistory} />
+    </FuelStatsStack.Navigator>
+  );
+}
+
+const DriverStatsStack = createNativeStackNavigator();
+function AdminDriverStatsStack() {
+  return (
+    <DriverStatsStack.Navigator>
+      <DriverStatsStack.Screen name="AdminDriverStats" component={AdminDriverStats} options={{ headerShown: false }} />
+      <DriverStatsStack.Screen name="AdminDriverDetails" component={AdminDriverDetails} />
+    </DriverStatsStack.Navigator>
+  );
+}
+
 export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {/* Login should decide which app to show based on user.role */}
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="MainApp" component={MainTabs} />
+        <Stack.Screen name="AdminApp" component={AdminTabs} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -117,10 +175,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 20 : 8,
     paddingTop: 12,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
+    shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 8,

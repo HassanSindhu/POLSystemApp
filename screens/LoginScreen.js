@@ -20,16 +20,27 @@ export default function LoginScreen({ navigation }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingToken, setIsCheckingToken] = useState(true);
 
+  // Centralized route-by-role
+  const routeByRole = (user) => {
+    const role = user?.role?.toLowerCase?.() || '';
+    if (role === 'admin') {
+      navigation.reset({ index: 0, routes: [{ name: 'AdminApp' }] });
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'MainApp' }] });
+    }
+  };
+
   // Check if user is already logged in
   useEffect(() => {
     const checkExistingLogin = async () => {
       try {
         const token = await AsyncStorage.getItem('userToken');
-        const userData = await AsyncStorage.getItem('userData');
+        const userDataStr = await AsyncStorage.getItem('userData');
 
-        if (token && userData) {
-          console.log('User already logged in, redirecting to main app...');
-          navigation.replace('MainApp');
+        if (token && userDataStr) {
+          const user = JSON.parse(userDataStr);
+          routeByRole(user);
+          return;
         }
       } catch (error) {
         console.error('Error checking existing login:', error);
@@ -43,30 +54,26 @@ export default function LoginScreen({ navigation }) {
 
   // Store token and user data
   const storeUserData = async (token, user) => {
-    try {
-      await AsyncStorage.setItem('userToken', token);
-      await AsyncStorage.setItem('userData', JSON.stringify(user));
-      console.log('User data stored successfully');
-    } catch (error) {
-      console.error('Error storing user data:', error);
-    }
+    await AsyncStorage.setItem('userToken', token);
+    await AsyncStorage.setItem('userData', JSON.stringify(user));
   };
 
   const handleLogin = async () => {
+    if (isLoading) return;
+
     // Validation
     if (!mobileNumber.trim()) {
       Alert.alert('Error', 'Please enter your mobile number');
       return;
     }
-
     if (!password.trim()) {
       Alert.alert('Error', 'Please enter your password');
       return;
     }
 
-    // Basic mobile number validation
+    // Basic mobile number validation (Pakistan format 03XXXXXXXXX)
     const mobileRegex = /^03\d{9}$/;
-    if (!mobileRegex.test(mobileNumber)) {
+    if (!mobileRegex.test(mobileNumber.trim())) {
       Alert.alert('Error', 'Please enter a valid mobile number (03XXXXXXXXX)');
       return;
     }
@@ -76,29 +83,23 @@ export default function LoginScreen({ navigation }) {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mobileNumber: mobileNumber.trim(),
           password: password.trim(),
         }),
       });
 
-      const data = await response.json();
+      let data;
+      try { data = await response.json(); }
+      catch { data = { message: await response.text() }; }
 
-      if (response.ok) {
-        // Login successful
-        console.log('Login successful:', data);
-
-        // Store token and user data
+      if (response.ok && data?.token && data?.user) {
         await storeUserData(data.token, data.user);
-
         Alert.alert('Success', `Welcome back, ${data.user.name}!`);
-        navigation.replace('MainApp');
+        routeByRole(data.user);
       } else {
-        // Login failed
-        Alert.alert('Login Failed', data.message || 'Invalid mobile number or password');
+        Alert.alert('Login Failed', data?.message || 'Invalid mobile number or password');
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -108,14 +109,18 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  // Demo login for testing
+  // Demo login for testing (prefill only)
   const handleDemoLogin = () => {
+    if (isLoading) return;
     setMobileNumber('03335900657');
     setPassword('Test@1234');
-    Alert.alert('Demo Credentials', 'Mobile: 03335900657\nPassword: Test@1234\n\nClick Sign In to login with demo credentials.');
+    Alert.alert(
+      'Demo Credentials',
+      'Mobile: 03335900657\nPassword: Test@1234\n\nClick Sign In to login with demo credentials.'
+    );
   };
 
-  // Show loading while checking token
+  // Splash while checking token
   if (isCheckingToken) {
     return (
       <View style={styles.loadingContainer}>
@@ -154,6 +159,7 @@ export default function LoginScreen({ navigation }) {
             autoCapitalize="none"
             maxLength={11}
             editable={!isLoading}
+            returnKeyType="next"
           />
         </View>
 
@@ -168,6 +174,8 @@ export default function LoginScreen({ navigation }) {
             placeholderTextColor="#9ca3af"
             secureTextEntry
             editable={!isLoading}
+            returnKeyType="done"
+            onSubmitEditing={handleLogin}
           />
         </View>
 
@@ -215,16 +223,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc',
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#6b7280',
-    fontWeight: '500',
+    marginTop: 16, fontSize: 16, color: '#6b7280', fontWeight: '500',
   },
   loginHeader: {
     backgroundColor: '#7c3aed',
@@ -243,127 +245,51 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
     position: 'relative',
   },
-  headerContent: {
-    zIndex: 2,
-  },
+  headerContent: { zIndex: 2 },
   headerDecoration: {
-    position: 'absolute',
-    top: -50,
-    right: -50,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: 100,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   loginHeaderTitle: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 8,
-    letterSpacing: -0.5,
+    fontSize: 36, fontWeight: '800', color: '#fff', marginBottom: 8, letterSpacing: -0.5,
   },
   loginHeaderSubtitle: {
-    fontSize: 16,
-    color: '#e9d5ff',
-    fontWeight: '500',
-    letterSpacing: 0.3,
+    fontSize: 16, color: '#e9d5ff', fontWeight: '500', letterSpacing: 0.3,
   },
   loginForm: {
-    flex: 1,
-    padding: 24,
-    marginTop: 20,
+    flex: 1, padding: 24, marginTop: 20,
   },
-  inputContainer: {
-    marginBottom: 24,
-  },
+  inputContainer: { marginBottom: 24 },
   inputLabel: {
-    color: '#374151',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 10,
-    letterSpacing: -0.2,
+    color: '#374151', fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2,
   },
   input: {
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#1f2937',
-    backgroundColor: '#ffffff',
-    fontWeight: '500',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 3,
+    borderWidth: 2, borderColor: '#e5e7eb', borderRadius: 16,
+    paddingHorizontal: 18, paddingVertical: 16, fontSize: 16, color: '#1f2937',
+    backgroundColor: '#ffffff', fontWeight: '500',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 6, elevation: 3,
   },
   loginButton: {
-    backgroundColor: '#7c3aed',
-    paddingVertical: 18,
-    borderRadius: 20,
-    alignItems: 'center',
-    shadowColor: '#7c3aed',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
-    marginTop: 16,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#7c3aed', paddingVertical: 18, borderRadius: 20, alignItems: 'center',
+    shadowColor: '#7c3aed', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4, shadowRadius: 16, elevation: 12, marginTop: 16,
+    borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  loginButtonDisabled: {
-    backgroundColor: '#9ca3af',
-    shadowOpacity: 0.2,
-  },
-  loginButtonText: {
-    color: '#ffffff',
-    fontWeight: '700',
-    fontSize: 18,
-    letterSpacing: 0.5,
-  },
+  loginButtonDisabled: { backgroundColor: '#9ca3af', shadowOpacity: 0.2 },
+  loginButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 18, letterSpacing: 0.5 },
   demoButton: {
-    backgroundColor: 'transparent',
-    paddingVertical: 14,
-    borderRadius: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#7c3aed',
-    marginTop: 12,
+    backgroundColor: 'transparent', paddingVertical: 14, borderRadius: 16, alignItems: 'center',
+    borderWidth: 2, borderColor: '#7c3aed', marginTop: 12,
   },
-  demoButtonText: {
-    color: '#7c3aed',
-    fontWeight: '600',
-    fontSize: 16,
-  },
+  demoButtonText: { color: '#7c3aed', fontWeight: '600', fontSize: 16 },
   demoInfo: {
-    marginTop: 24,
-    padding: 16,
-    backgroundColor: '#f0f9ff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e0f2fe',
+    marginTop: 24, padding: 16, backgroundColor: '#f0f9ff', borderRadius: 12,
+    borderWidth: 1, borderColor: '#e0f2fe',
   },
-  demoTitle: {
-    color: '#0369a1',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
+  demoTitle: { color: '#0369a1', fontSize: 16, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   demoText: {
-    color: '#0369a1',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    lineHeight: 20,
+    color: '#0369a1', fontSize: 14, fontWeight: '500', textAlign: 'center', lineHeight: 20,
   },
-  demoNote: {
-    color: '#0284c7',
-    fontSize: 12,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginTop: 8,
-  },
+  demoNote: { color: '#0284c7', fontSize: 12, fontStyle: 'italic', textAlign: 'center', marginTop: 8 },
 });
