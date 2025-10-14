@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,24 +7,78 @@ import {
   Platform,
   StatusBar,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProfileScreen({ navigation }) {
-  // Sample data - will be replaced with API data later
-  const userData = {
-    name: 'Driver Name',
-    email: 'Example.e@example.com',
-    role: 'Driver',
-    joinDate: '2024-01-15',
-  };
-
-  const statsData = {
+  const [userData, setUserData] = useState(null);
+  const [statsData, setStatsData] = useState({
     totalTravels: 24,
     pendingTravels: 3,
     totalFuelCost: 12560,
     totalDistance: 2450,
     fuelRecords: 18,
+  });
+
+  // Load user data on component mount
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        const userDataString = await AsyncStorage.getItem('userData');
+        if (userDataString) {
+          const user = JSON.parse(userDataString);
+          setUserData(user);
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error);
+      }
+    };
+
+    loadUserData();
+  }, []);
+
+  // Handle logout
+  const handleLogout = () => {
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Clear all stored data
+              await AsyncStorage.multiRemove(['userToken', 'userData']);
+              console.log('User logged out successfully');
+
+              // Navigate to login screen
+              navigation.replace('Login');
+            } catch (error) {
+              console.error('Error during logout:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
+
+  if (!userData) {
+    return (
+      <View style={styles.screenContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screenContainer}>
@@ -52,9 +106,11 @@ export default function ProfileScreen({ navigation }) {
             </View>
             <View style={styles.userDetails}>
               <Text style={styles.userName}>{userData.name}</Text>
-              <Text style={styles.userEmail}>{userData.email}</Text>
+              <Text style={styles.userEmail}>{userData.mobileNumber}</Text>
               <Text style={styles.userRole}>{userData.role}</Text>
-              <Text style={styles.joinDate}>Joined {userData.joinDate}</Text>
+              <Text style={styles.joinDate}>
+                Joined {new Date(userData.createdAt).toLocaleDateString()}
+              </Text>
             </View>
           </View>
         </View>
@@ -98,7 +154,9 @@ export default function ProfileScreen({ navigation }) {
 
             <View style={styles.financeItem}>
               <Text style={styles.financeLabel}>Average per Travel</Text>
-              <Text style={styles.financeValue}>Rs {Math.round(statsData.totalFuelCost / statsData.totalTravels).toLocaleString()}</Text>
+              <Text style={styles.financeValue}>
+                Rs {Math.round(statsData.totalFuelCost / statsData.totalTravels).toLocaleString()}
+              </Text>
             </View>
           </View>
         </View>
@@ -115,7 +173,10 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.actionButtonSecondaryText}>Change Password</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionButton, styles.actionButtonDanger]}>
+          <TouchableOpacity
+            style={[styles.actionButton, styles.actionButtonDanger]}
+            onPress={handleLogout}
+          >
             <Text style={styles.actionButtonDangerText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -128,7 +189,16 @@ const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
     backgroundColor: '#f8fafc',
-    paddingBottom: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
   headerContainer: {
     backgroundColor: '#7c3aed',
