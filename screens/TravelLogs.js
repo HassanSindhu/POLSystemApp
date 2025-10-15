@@ -15,20 +15,31 @@ import Geolocation from '@react-native-community/geolocation';
 const STORAGE_KEY = 'TRAVEL_LOGS';
 const Stack = createNativeStackNavigator();
 
-// API endpoints
-const PENDING_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api/travel/travel-logs/pending';
-const COMPLETE_BASE_URL = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api/travel/travel-logs';
+// ---- API endpoints ----
+const API_BASE = 'https://gis-lab-eco-tourism.vercel.app/fuel-app/api';
+const PENDING_URL = `${API_BASE}/travel/travel-logs/pending`;
+const COMPLETE_BASE_URL = `${API_BASE}/travel/travel-logs`;
+const COMPLETED_BY_TOKEN_URL = `${API_BASE}/travel/travel-logs/driver/completed?perPage=10&pageNo=1`;
 const BUCKET_UPLOAD_URL = 'https://cms-dev.gisforestry.com/backend/upload/new';
+
+/** Session helper: token + userId (driverId) from AsyncStorage */
+const getSession = async () => {
+  const token = await AsyncStorage.getItem('userToken');
+  let userId = await AsyncStorage.getItem('userId'); // stored at login
+  if (!token) throw new Error('Not authenticated. Please login again.');
+  if (!userId) {
+    const userDataStr = await AsyncStorage.getItem('userData');
+    const user = userDataStr ? JSON.parse(userDataStr) : null;
+    if (user?._id) userId = String(user._id);
+  }
+  if (!userId) throw new Error('Driver ID not found in session.');
+  return { token, userId };
+};
 
 /** ---------- Root wrapper with inner Stack (List -> Complete) ---------- */
 export default function TravelLogs() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerShown: false, // keep native header hidden (you have custom header)
-        animation: Platform.OS === 'ios' ? 'default' : 'fade',
-      }}
-    >
+    <Stack.Navigator screenOptions={{ headerShown: false, animation: Platform.OS === 'ios' ? 'default' : 'fade' }}>
       <Stack.Screen name="TravelLogsList" component={TravelLogsList} />
       <Stack.Screen name="TravelLogComplete" component={TravelLogComplete} />
     </Stack.Navigator>
@@ -37,81 +48,144 @@ export default function TravelLogs() {
 
 /** ---------------------------- LIST SCREEN ---------------------------- */
 function TravelLogsList({ navigation }) {
-  const [logs, setLogs] = useState([]);      // server rows adapted to local shape
+  const [pendingLogs, setPendingLogs] = useState([]);
+  const [completedLogs, setCompletedLogs] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [filter, setFilter] = useState('all'); // all | pending | completed
 
-  // Map server rows to your old local-row shape so UI stays identical
-  const adaptServerRow = (r) => ({
-    id: r?._id || `srv_${Math.random()}`,
-    officer: r?.officer || '',
-    from: r?.travelFrom || r?.from || '',
-    to: r?.travelTo || r?.to || '',
-    preMeter: r?.preMeter ?? '',
-    preMeterImg: r?.preMeterImg || null,
-    meta: { timestamp: r?.timestamp || r?.createdAt || new Date().toISOString() },
-    post: (r?.status || '').toLowerCase() === 'completed'
-      ? { completed: true, postMeter: r?.postMeter ?? '', km: r?.km ?? 0, fuelPercent: r?.fuelPercent ?? 0 }
-      : undefined,
-    __server: r,
-  });
+  // ---- Map server rows to local shape (handles multiple field names/cases) ----
+  const adaptServerRow = (r) => {
+    const pre = Number(r?.preMeter ?? r?.pre_odometer ?? 0);
+    const post = Number(r?.postMeter ?? r?.post_odometer ?? 0);
 
-  const fetchPending = useCallback(async () => {
+    // Prefer API's distance if provided (distanceKm / distanceKM / DistanceKM / distance)
+    const apiKm =
+      (Number.isFinite(r?.distanceKm) && r.distanceKm) ??
+      (Number.isFinite(r?.distanceKM) && r.distanceKM) ??
+      (Number.isFinite(r?.DistanceKM) && r.DistanceKM) ??
+      (Number.isFinite(r?.distance) && r.distance);
+
+    const km = Number.isFinite(apiKm)
+      ? apiKm
+      : Math.max(0, (Number.isFinite(post) ? post : 0) - (Number.isFinite(pre) ? pre : 0));
+
+    const fuelPct =
+      typeof r?.fuelPercent === 'number' ? r.fuelPercent :
+      typeof r?.fuel === 'number' ? r.fuel :
+      0;
+
+    return {
+      id: r?._id || `srv_${Math.random()}`,
+      officer: r?.officer || r?.driverName || '',
+      from: r?.travelFrom || r?.from || '',
+      to: r?.travelTo || r?.to || '',
+      preMeter: pre || '',
+      preMeterImg: r?.preMeterImg || r?.preMeterImage || r?.pre_odometer_image || null,
+      // keep raw to collect images later on details screen
+      raw: r,
+      meta: {
+        timestamp: r?.timestamp || r?.createdAt || r?.startTime || new Date().toISOString(),
+      },
+      post: (r?.status || '').toLowerCase() === 'completed'
+        ? {
+            completed: true,
+            postMeter: post || '',
+            km,
+            fuelPercent: fuelPct,
+            timestamp: r?.updatedAt || r?.completedAt || r?.endTime || r?.timestamp
+          }
+        : undefined,
+      __server: r,
+    };
+  };
+
+  /** Pending logs (requires userId in query) */
+  const fetchPending = useCallback(async (token, userId) => {
+    const url = `${PENDING_URL}?userId=${encodeURIComponent(userId)}&vehicle=&perPage=10&pageNo=1`;
+    const res = await fetch(url, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+
+    let data;
+    try { data = await res.json(); } catch { data = { message: await res.text() }; }
+
+    if (!res.ok) {
+      if (res.status === 401) await AsyncStorage.multiRemove(['userToken', 'userData', 'userId']);
+      throw new Error(data?.message || 'Failed to load pending travel logs.');
+    }
+
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    return rows.map(adaptServerRow);
+  }, []);
+
+  /** Completed logs (by token; no driverId in URL) */
+  const fetchCompleted = useCallback(async (token) => {
+    const res = await fetch(COMPLETED_BY_TOKEN_URL, { method: 'GET', headers: { Authorization: `Bearer ${token}` } });
+
+    let data;
+    try { data = await res.json(); } catch { data = { message: await res.text() }; }
+
+    if (!res.ok) {
+      if (res.status === 401) await AsyncStorage.multiRemove(['userToken', 'userData', 'userId']);
+      throw new Error(data?.message || 'Failed to load completed travel logs.');
+    }
+
+    // Accept both {data:[...]} and [...]
+    const rows = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+    const normalized = rows.map(r => ({ status: 'completed', ...r }));
+    return normalized.map(adaptServerRow);
+  }, []);
+
+  /** Load both lists */
+  const loadBoth = useCallback(async () => {
     setError('');
     try {
-      const token = await AsyncStorage.getItem('userToken');
-      const userDataStr = await AsyncStorage.getItem('userData');
-      if (!token || !userDataStr) throw new Error('Not authenticated. Please login again.');
-      const user = JSON.parse(userDataStr);
-      const userId = user?._id;
-      if (!userId) throw new Error('User ID missing in session.');
+      const { token, userId } = await getSession();
+      const [p, c] = await Promise.allSettled([
+        fetchPending(token, userId),
+        fetchCompleted(token),
+      ]);
 
-      const url = `${PENDING_URL}?userId=${encodeURIComponent(userId)}&vehicle=&perPage=10&pageNo=1`;
+      const pend = p.status === 'fulfilled' ? p.value : [];
+      const comp = c.status === 'fulfilled' ? c.value : [];
 
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` }, // note: no Content-Type for GET
-      });
-
-      let data;
-      try { data = await res.json(); }
-      catch { data = { message: await res.text() }; }
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          await AsyncStorage.multiRemove(['userToken', 'userData']);
-          throw new Error('Session expired. Please login again.');
-        }
-        throw new Error(data?.message || 'Failed to load pending travel logs.');
-      }
-
-      const rows = Array.isArray(data?.data) ? data.data : [];
-      const adapted = rows.map(adaptServerRow)
-        .sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || ''));
-      setLogs(adapted);
+      setPendingLogs(pend.sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || '')));
+      setCompletedLogs(comp.sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || '')));
     } catch (e) {
       console.error('[TravelLogs] fetch error', e);
       setError(e?.message || 'Error loading logs.');
-      setLogs([]);
+      setPendingLogs([]);
+      setCompletedLogs([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchPending, fetchCompleted]);
 
+  // Reload on screen focus
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
       setLoading(true);
-      fetchPending();
+      loadBoth();
     });
     return unsub;
-  }, [navigation, fetchPending]);
+  }, [navigation, loadBoth]);
+
+  // Apply filter
+  useEffect(() => {
+    let list = [];
+    if (filter === 'pending') list = pendingLogs;
+    else if (filter === 'completed') list = completedLogs;
+    else list = [...pendingLogs, ...completedLogs];
+
+    setLogs(list.sort((a, b) => (b?.meta?.timestamp || '').localeCompare(a?.meta?.timestamp || '')));
+  }, [filter, pendingLogs, completedLogs]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchPending();
-  }, [fetchPending]);
+    loadBoth();
+  }, [loadBoth]);
 
   const renderItem = ({ item }) => (
     <LogRow
@@ -124,26 +198,42 @@ function TravelLogsList({ navigation }) {
     <SafeAreaView style={styles.screenContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Custom Header */}
+      {/* Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
           <View style={styles.headerContent}>
             <Text style={styles.header}>Travel Logs</Text>
-            <Text style={styles.subHeader}>Tap to view or complete travel details</Text>
+            <Text style={styles.subHeader}>Pending + Completed (by token)</Text>
           </View>
           <View style={styles.headerDecoration} />
+        </View>
+
+        {/* Filter Pills */}
+        <View style={styles.filterRow}>
+          {['all', 'pending', 'completed'].map(f => (
+            <TouchableOpacity
+              key={f}
+              onPress={() => setFilter(f)}
+              style={[styles.filterPill, filter === f && styles.filterPillActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
       {loading ? (
         <View style={{ padding: 24, alignItems: 'center' }}>
           <ActivityIndicator size="large" color="#7c3aed" />
-          <Text style={{ marginTop: 8, color: '#6b7280' }}>Loading pending logs…</Text>
+          <Text style={{ marginTop: 8, color: '#6b7280' }}>Loading logs…</Text>
         </View>
       ) : error ? (
         <View style={{ padding: 24, alignItems: 'center' }}>
           <Text style={{ color: '#ef4444', textAlign: 'center', marginBottom: 8 }}>{error}</Text>
-          <TouchableOpacity onPress={fetchPending} style={{ backgroundColor: '#7c3aed', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}>
+          <TouchableOpacity onPress={loadBoth} style={{ backgroundColor: '#7c3aed', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}>
             <Text style={{ color: '#fff', fontWeight: '700' }}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -153,7 +243,7 @@ function TravelLogsList({ navigation }) {
           keyExtractor={(it) => it.id}
           contentContainerStyle={{ padding: 16 }}
           renderItem={renderItem}
-          ListEmptyComponent={<Text style={styles.emptyText}>No travel logs found.</Text>}
+          ListEmptyComponent={<Text style={styles.emptyText}>کوئی لاگ نہیں ملا۔</Text>}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#7c3aed" />}
         />
       )}
@@ -227,21 +317,42 @@ function TravelLogComplete({ route, navigation }) {
   const [fuelMeterImg, setFuelMeterImg] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // load by id from local if present, else adapt server record into same shape
+  // load current record
   useEffect(() => {
     (async () => {
       try {
         if (serverRecord) {
+          const pre = Number(serverRecord.preMeter ?? serverRecord.pre_odometer ?? 0);
+          const post = Number(serverRecord.postMeter ?? serverRecord.post_odometer ?? 0);
+          const apiKm =
+            (Number.isFinite(serverRecord.distanceKm) && serverRecord.distanceKm) ??
+            (Number.isFinite(serverRecord.distanceKM) && serverRecord.distanceKM) ??
+            (Number.isFinite(serverRecord.DistanceKM) && serverRecord.DistanceKM) ??
+            (Number.isFinite(serverRecord.distance) && serverRecord.distance);
+          const km = Number.isFinite(apiKm) ? apiKm : Math.max(0, (Number.isFinite(post) ? post : 0) - (Number.isFinite(pre) ? pre : 0));
+
+          const fuelPct =
+            typeof serverRecord.fuelPercent === 'number' ? serverRecord.fuelPercent :
+            typeof serverRecord.fuel === 'number' ? serverRecord.fuel :
+            0;
+
           setRecord({
             id: serverRecord._id,
-            officer: serverRecord.officer || '',
+            officer: serverRecord.officer || serverRecord.driverName || '',
             from: serverRecord.travelFrom || '',
             to: serverRecord.travelTo || '',
-            preMeter: serverRecord.preMeter ?? '',
-            preMeterImg: serverRecord.preMeterImg || null,
-            meta: { timestamp: serverRecord.timestamp || serverRecord.createdAt || new Date().toISOString() },
+            preMeter: pre || '',
+            preMeterImg: serverRecord.preMeterImg || serverRecord.preMeterImage || serverRecord.pre_odometer_image || null,
+            raw: serverRecord,
+            meta: { timestamp: serverRecord.timestamp || serverRecord.createdAt || serverRecord.startTime || new Date().toISOString() },
             post: (serverRecord.status || '').toLowerCase() === 'completed'
-              ? { completed: true, postMeter: serverRecord.postMeter ?? '', km: serverRecord.km ?? 0, fuelPercent: serverRecord.fuelPercent ?? 0 }
+              ? {
+                  completed: true,
+                  postMeter: post || '',
+                  km,
+                  fuelPercent: fuelPct,
+                  timestamp: serverRecord.updatedAt || serverRecord.completedAt || serverRecord.endTime || serverRecord.timestamp
+                }
               : undefined,
           });
           return;
@@ -268,40 +379,38 @@ function TravelLogComplete({ route, navigation }) {
 
   const pre = useMemo(() => Number(record?.preMeter ?? 0), [record]);
   const postNum = useMemo(() => Number(postMeter || 0), [postMeter]);
+
+  // Prefer API-provided distance for completed; fallback otherwise
   const km = useMemo(() => {
     if (record?.post?.completed) return record.post.km;
     return Math.max(0, (Number.isFinite(postNum) ? postNum : 0) - (Number.isFinite(pre) ? pre : 0));
   }, [postNum, pre, record]);
 
   const isCompleted = !!record?.post?.completed;
-  const isFormValid = !isCompleted && record && Number.isFinite(postNum) && postMeter !== '' && postNum >= pre
-    && !!postMeterImg?.uri && !!fuelMeterImg?.uri;
+  const isFormValid =
+    !isCompleted &&
+    record &&
+    Number.isFinite(postNum) &&
+    postMeter !== '' &&
+    postNum >= pre &&
+    !!postMeterImg?.uri &&
+    !!fuelMeterImg?.uri;
 
-  // ---- helpers: permissions + location (best effort) ----
+  // ---- permissions + location (best effort) ----
   const requestLocationPermission = async () => {
     if (Platform.OS === 'android') {
       try {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Location Permission',
-            message: 'Completing travel requires your location.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
+          { title: 'Location Permission', message: 'Completing travel requires your location.', buttonNeutral: 'Ask Me Later', buttonNegative: 'Cancel', buttonPositive: 'OK' }
         );
         return granted === PermissionsAndroid.RESULTS.GRANTED;
-      } catch {
-        return false;
-      }
+      } catch { return false; }
     } else {
       try {
         const auth = await Geolocation.requestAuthorization?.('whenInUse');
         return auth === 'granted' || auth === 'authorized';
-      } catch {
-        return false;
-      }
+      } catch { return false; }
     }
   };
 
@@ -317,12 +426,12 @@ function TravelLogComplete({ route, navigation }) {
     });
   };
 
-  // ---- bucket image upload ----
+  // ---- bucket image upload (RN: don't force multipart boundary) ----
   const uploadImageToBucket = async (imageObj) => {
     if (!imageObj?.uri) return null;
     const uri = imageObj.uri;
 
-    if (/^https?:\/\//i.test(uri)) return uri;
+    if (/^https?:\/\//i.test(uri)) return uri; // already uploaded
 
     const name = uri.split('/').pop() || 'image.jpg';
     const extMatch = /\.(\w+)$/.exec(name);
@@ -336,7 +445,6 @@ function TravelLogComplete({ route, navigation }) {
     const res = await fetch(BUCKET_UPLOAD_URL, {
       method: 'POST',
       body: fd,
-      headers: { 'Content-Type': 'multipart/form-data' },
     });
 
     let data;
@@ -369,49 +477,57 @@ function TravelLogComplete({ route, navigation }) {
     throw new Error('Image upload response did not include a URL');
   };
 
-  // ---- PATCH /complete ----
+  // ---- PATCH /complete (hardened) ----
   const submitCompletion = async () => {
     if (!record) return;
     const token = await AsyncStorage.getItem('userToken');
     if (!token) throw new Error('Auth token missing. Please login again.');
 
-    // Get GPS (optional, don’t block if fails)
+    // Validate again (defense)
+    if (!Number.isFinite(postNum) || postNum < Number(record?.preMeter ?? 0)) {
+      throw new Error('Post meter must be a valid number and >= Pre meter.');
+    }
+    if (!postMeterImg?.uri || !fuelMeterImg?.uri) {
+      throw new Error('Both images are required.');
+    }
+
+    // Get GPS (optional)
     let coords = await getCurrentLocation();
 
-    // Upload both images
+    // Upload images
     const postMeterImgUrl = await uploadImageToBucket(postMeterImg);
     const fuelMeterImgUrl = await uploadImageToBucket(fuelMeterImg);
 
-    // Build payload
+    // Build payload (include fallbacks for server field name variations)
     const payload = {
       postMeter: postNum,
+      post_odometer: postNum,                        // fallback
       postMeterImg: postMeterImgUrl,
+      postMeterImage: postMeterImgUrl,               // fallback
       fuelPercent,
+      fuel: fuelPercent,                             // fallback
       fuelMeterImg: fuelMeterImgUrl,
-      // Server expects "Coordinates" (capitalized) as per your examples
+      fuelMeterImage: fuelMeterImgUrl,               // fallback
       Coordinates: Array.isArray(coords) ? coords : undefined,
     };
 
     const url = `${COMPLETE_BASE_URL}/${record.id}/complete`;
     const res = await fetch(url, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     });
 
     let data;
-    try { data = await res.json(); }
-    catch { data = { message: await res.text() }; }
+    try { data = await res.json(); } catch { data = { message: await res.text() }; }
 
     if (!res.ok) {
       if (res.status === 401) {
-        await AsyncStorage.multiRemove(['userToken', 'userData']);
+        await AsyncStorage.multiRemove(['userToken', 'userData', 'userId']);
         throw new Error(data?.message || 'Session expired. Please login again.');
       }
-      throw new Error(data?.message || 'Failed to complete travel log.');
+      const msg = data?.errors?.map?.(e => e?.msg || e)?.join?.('\n') || data?.message || 'Failed to complete travel log.';
+      throw new Error(msg);
     }
 
     return data;
@@ -431,11 +547,14 @@ function TravelLogComplete({ route, navigation }) {
       navigation.goBack();
     } catch (e) {
       console.error('[Complete PATCH] error:', e);
-      Alert.alert('Error', e?.message || 'Could not complete the travel log.');
+      Alert.alert('Error', String(e?.message || 'Could not complete the travel log.'));
     } finally {
       setSubmitting(false);
     }
   }, [record, isFormValid, submitCompletion, navigation]);
+
+  // ⬇️ IMPORTANT FIX: call all hooks BEFORE any conditional returns
+  const gallery = useMemo(() => collectAllImages(record), [record]);
 
   if (!record) {
     return (
@@ -449,7 +568,7 @@ function TravelLogComplete({ route, navigation }) {
     <SafeAreaView style={styles.screenContainer}>
       <StatusBar barStyle="light-content" backgroundColor="#7c3aed" />
 
-      {/* Custom Header */}
+      {/* Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerBackground}>
           <View style={styles.headerContent}>
@@ -465,7 +584,7 @@ function TravelLogComplete({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20 }}>
-        {/* Previous details (readonly) */}
+        {/* Previous details */}
         <View style={styles.card}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Travel Information</Text>
@@ -486,17 +605,18 @@ function TravelLogComplete({ route, navigation }) {
               <ReadonlyRow label="Post Meter" value={String(record.post.postMeter)} />
               <ReadonlyRow label="Distance Traveled" value={`${record.post.km} km`} />
               <ReadonlyRow label="Fuel Status" value={`${record.post.fuelPercent}%`} />
-              <ReadonlyRow label="Journey Completed" value={new Date(record.post.timestamp).toLocaleString()} />
+              {record.post.timestamp && (
+                <ReadonlyRow label="Journey Completed" value={new Date(record.post.timestamp).toLocaleString()} />
+              )}
             </>
           )}
         </View>
 
-        {/* Post Details Section - Only show for pending travels */}
+        {/* Post Details (only pending) */}
         {!isCompleted && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Post Details</Text>
 
-            {/* Post Meter Reading */}
             <Text style={styles.inputLabel}>Post Meter Reading <Text style={{ color: '#ef4444' }}>*</Text></Text>
             <TextInput
               style={styles.input}
@@ -508,7 +628,6 @@ function TravelLogComplete({ route, navigation }) {
             />
             <Text style={styles.hint}>KM Travel (auto): <Text style={{ fontWeight: '700' }}>{km}</Text></Text>
 
-            {/* Post Meter Image */}
             <View style={{ marginTop: 16 }}>
               <ImageCaptureRow
                 label="Post Meter Image"
@@ -518,7 +637,6 @@ function TravelLogComplete({ route, navigation }) {
               />
             </View>
 
-            {/* Fuel Status (percent slider) */}
             <View style={{ marginTop: 20 }}>
               <Text style={styles.inputLabel}>Fuel Status (%)</Text>
               <Slider
@@ -535,7 +653,6 @@ function TravelLogComplete({ route, navigation }) {
               <Text style={styles.hint}>Selected: {fuelPercent}%</Text>
             </View>
 
-            {/* Fuel Meter Image */}
             <View style={{ marginTop: 16 }}>
               <ImageCaptureRow
                 label="Fuel Meter Image"
@@ -545,7 +662,6 @@ function TravelLogComplete({ route, navigation }) {
               />
             </View>
 
-            {/* Save button */}
             <TouchableOpacity
               style={[
                 styles.submitBtn,
@@ -554,26 +670,16 @@ function TravelLogComplete({ route, navigation }) {
               onPress={handleSave}
               disabled={!isFormValid || submitting}
             >
-              {submitting ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.submitBtnText}>Save Post Details</Text>
-              )}
+              {submitting ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.submitBtnText}>Save Post Details</Text>}
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Completed Travel Images Section */}
-        {isCompleted && (
+        {/* ---- Attachments / All Images ---- */}
+        {gallery.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Travel Images</Text>
-
-            <View style={styles.imageSection}>
-              <Text style={styles.imageLabel}>Pre Meter Image</Text>
-              {record.preMeterImg && (
-                <Image source={{ uri: record.preMeterImg }} style={styles.previewImage} />
-              )}
-            </View>
+            <Text style={styles.sectionTitle}>Attachments</Text>
+            <ImageGrid images={gallery} />
           </View>
         )}
       </ScrollView>
@@ -591,9 +697,85 @@ function ReadonlyRow({ label, value }) {
   );
 }
 
+/** Collect & dedupe all possible image fields into [{url, label}] */
+function collectAllImages(rec) {
+  const raw = rec?.raw || {};
+  const buckets = [];
+
+  // single fields
+  const single = [
+    { key: 'preMeterImg', label: 'Pre Meter' },
+    { key: 'preMeterImage', label: 'Pre Meter' },
+    { key: 'pre_odometer_image', label: 'Pre Meter' },
+    { key: 'postMeterImg', label: 'Post Meter' },
+    { key: 'postMeterImage', label: 'Post Meter' },
+    { key: 'post_odometer_image', label: 'Post Meter' },
+    { key: 'fuelMeterImg', label: 'Fuel Meter' },
+    { key: 'fuelMeterImage', label: 'Fuel Meter' },
+  ];
+  single.forEach(({ key, label }) => {
+    const url = raw?.[key];
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      buckets.push({ url, label });
+    }
+  });
+
+  // array-like fields
+  const arrays = [
+    { key: 'preImages', label: 'Pre' },
+    { key: 'postImages', label: 'Post' },
+    { key: 'fuelImages', label: 'Fuel' },
+    { key: 'images', label: 'Image' },
+    { key: 'attachments', label: 'Attachment' },
+    { key: 'photos', label: 'Photo' },
+  ];
+  arrays.forEach(({ key, label }) => {
+    const arr = raw?.[key];
+    if (Array.isArray(arr)) {
+      arr.forEach((u, idx) => {
+        if (typeof u === 'string' && /^https?:\/\//i.test(u)) {
+          buckets.push({ url: u, label: `${label} ${idx + 1}` });
+        } else if (u && typeof u === 'object') {
+          // try common shapes: {url}, {image}, {Location}, {availableSizes: {image}}
+          const u1 = u.url || u.image || u.Location || u?.availableSizes?.image;
+          if (typeof u1 === 'string' && /^https?:\/\//i.test(u1)) {
+            buckets.push({ url: u1, label: `${label} ${idx + 1}` });
+          }
+        }
+      });
+    }
+  });
+
+  // dedupe by URL
+  const seen = new Set();
+  const deduped = [];
+  for (const it of buckets) {
+    if (!seen.has(it.url)) {
+      seen.add(it.url);
+      deduped.push(it);
+    }
+  }
+  return deduped;
+}
+
+/** Simple responsive image grid */
+function ImageGrid({ images }) {
+  if (!Array.isArray(images) || images.length === 0) return null;
+  return (
+    <View style={styles.gridWrap}>
+      {images.map((img, idx) => (
+        <View key={`${img.url}-${idx}`} style={styles.gridItem}>
+          <Image source={{ uri: img.url }} style={styles.gridImage} />
+          {!!img.label && <Text style={styles.gridCaption} numberOfLines={1}>{img.label}</Text>}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** ------------------------------- styles ------------------------------ */
 const styles = StyleSheet.create({
-  screenContainer: { flex: 1, backgroundColor: '#f8fafc' , paddingBottom: 40},
+  screenContainer: { flex: 1, backgroundColor: '#f8fafc', paddingBottom: 40 },
 
   // Header
   headerContainer: {
@@ -610,7 +792,7 @@ const styles = StyleSheet.create({
   headerBackground: {
     paddingHorizontal: 24,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 40,
+    paddingBottom: 24,
     position: 'relative',
   },
   headerContent: { zIndex: 2 },
@@ -625,6 +807,13 @@ const styles = StyleSheet.create({
   },
   header: { fontSize: 36, fontWeight: '800', color: '#fff', marginBottom: 8, letterSpacing: -0.5 },
   subHeader: { fontSize: 16, color: '#e9d5ff', fontWeight: '500', letterSpacing: 0.3 },
+
+  // Filter pills
+  filterRow: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
+  filterPill: { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  filterPillActive: { backgroundColor: '#fff' },
+  filterText: { color: '#f3f4f6', fontWeight: '600' },
+  filterTextActive: { color: '#7c3aed' },
 
   emptyText: { textAlign: 'center', color: '#6b7280', marginTop: 40 },
 
@@ -661,9 +850,8 @@ const styles = StyleSheet.create({
 
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#374151' },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  statusPending: { backgroundColor: '#fef3c7' },
-  statusCompleted: { backgroundColor: '#d1fae5' },
+  statusPending: { backgroundColor: '#fef3c7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  statusCompleted: { backgroundColor: '#d1fae5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
   statusBadgeText: { fontSize: 12, fontWeight: '700', color: '#374151' },
 
   readonlyRow: {
@@ -685,6 +873,12 @@ const styles = StyleSheet.create({
   imageLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
   previewImage: { width: '100%', height: 200, borderRadius: 12, backgroundColor: '#f3f4f6' },
 
+  // gallery grid
+  gridWrap: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, marginHorizontal: -6 },
+  gridItem: { width: '33.333%', paddingHorizontal: 6, marginBottom: 12 },
+  gridImage: { width: '100%', aspectRatio: 1, borderRadius: 10, backgroundColor: '#f3f4f6' },
+  gridCaption: { marginTop: 6, fontSize: 12, color: '#6b7280', textAlign: 'center' },
+
   submitBtn: {
     backgroundColor: '#7c3aed',
     paddingVertical: 16,
@@ -697,11 +891,6 @@ const styles = StyleSheet.create({
     elevation: 8,
     marginTop: 20,
   },
-  submitBtnDisabled: {
-    backgroundColor: '#9ca3af',
-    shadowColor: '#6b7280',
-    shadowOpacity: 0.2,
-    elevation: 4,
-  },
+  submitBtnDisabled: { backgroundColor: '#9ca3af', shadowColor: '#6b7280', shadowOpacity: 0.2, elevation: 4 },
   submitBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
